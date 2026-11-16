@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+  <title>Planta da Mudança</title>
+  <meta name="description" content="Monte a planta dos cômodos, arraste os móveis com medidas reais e veja em 3D.">
+  <meta name="theme-color" content="#f7f6f3" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#16181c" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="app">
+    <header class="top">
+      <button class="ib" id="bProjects" title="Projetos" aria-label="Projetos"></button>
+      <div class="pname">
+        <input id="projName" aria-label="Nome do projeto" spellcheck="false" autocomplete="off">
+        <span id="saveState" class="save-state"></span>
+      </div>
+      <div class="grow"></div>
+      <button class="ib" id="bUndo" title="Desfazer (Ctrl+Z)" aria-label="Desfazer"></button>
+      <button class="ib" id="bRedo" title="Refazer (Ctrl+Y)" aria-label="Refazer"></button>
+      <div class="seg" id="viewSeg" role="group" aria-label="Vista">
+        <button data-view="2d" class="on">2D</button><button data-view="3d">3D</button>
+      </div>
+      <button class="ib" id="bMore" title="Mais opções" aria-label="Mais opções"></button>
+    </header>
+
+    <div class="main">
+      <aside id="left" class="panel left" aria-label="Cômodos e móveis">
+        <div class="sheet-grip" data-close-sheet></div>
+        <div class="tabs" role="tablist">
+          <button data-tab="rooms" role="tab">Cômodos</button>
+          <button data-tab="catalog" role="tab">Móveis</button>
+          <button data-tab="list" role="tab">Lista</button>
+          <button class="ib sm sheet-x" data-close-sheet aria-label="Fechar"></button>
+        </div>
+        <div id="leftBody" class="panel-body"></div>
+      </aside>
+
+      <section id="stage" class="stage">
+        <svg id="plan" role="application" aria-label="Planta (vista de cima)"></svg>
+        <div id="v3" class="v3" hidden>
+          <div class="v3-bar">
+            <div class="seg sm" id="v3View"><button data-v="iso" class="on">Perspectiva</button><button data-v="top">De cima</button><button data-v="walk">Por dentro</button></div>
+            <div class="seg sm" id="v3Walls"><button data-w="full">Paredes</button><button data-w="low" class="on">Baixas</button><button data-w="none">Sem</button></div>
+          </div>
+          <div class="v3-loading" id="v3Loading">Carregando 3D…</div>
+        </div>
+        <div class="tools" id="tools">
+          <button class="tb on" data-tool="select" title="Selecionar e mover (V)"></button>
+          <button class="tb" data-toggle="multi" title="Selecionar vários (ou segure Shift / segure o dedo)"></button>
+          <button class="tb" data-tool="measure" title="Régua: arraste para medir (M)"></button>
+          <span class="tsep"></span>
+          <button class="tb" data-toggle="snap" title="Ímã: encaixar em paredes, cantos e móveis"></button>
+          <button class="tb" data-toggle="snapGrid" title="Encaixar na grade"></button>
+        </div>
+        <div class="zoom" id="zoomBox">
+          <button class="tb" data-zoom="in" title="Aproximar"></button>
+          <button class="tb" data-zoom="out" title="Afastar"></button>
+          <button class="tb" data-zoom="fit" title="Ver tudo"></button>
+        </div>
+        <div class="scale" id="scaleBar"><i></i><span></span></div>
+        <button class="warn-chip" id="warnChip" hidden></button>
+        <div class="toast" id="toast" role="status" aria-live="polite"></div>
+      </section>
+
+      <aside id="props" class="panel right" aria-label="Propriedades">
+        <div class="sheet-grip" id="propsGrip"></div>
+        <div id="propsBody" class="panel-body"></div>
+      </aside>
+    </div>
+
+    <nav class="bottom" id="bottomNav">
+      <button data-sheet="rooms"><span class="bi" data-icon="home"></span>Cômodos</button>
+      <button data-sheet="catalog"><span class="bi" data-icon="sofa"></span>Móveis</button>
+      <button data-sheet="list"><span class="bi" data-icon="list"></span>Lista</button>
+      <button data-sheet="props"><span class="bi" data-icon="settings"></span>Ajustes</button>
+    </nav>
+  </div>
+
+  <div id="menuMore" class="menu" hidden></div>
+  <dialog id="dlg"></dialog>
+  <input type="file" id="fileIn" accept=".json,application/json" hidden>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+// Configuração do Cloudflare (Worker + arquivos estáticos).
+// O "name" precisa ser IGUAL ao nome do Worker criado no painel do Cloudflare.
+// Deploy: o Cloudflare roda "npx wrangler deploy" a cada push no GitHub.
+{
+  "name": "planta-mudanca",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  // Projetos salvos na nuvem: Durable Object com SQLite (plano grátis, nada para criar no painel).
+  "durable_objects": {
+    "bindings": [{ "name": "BANCO", "class_name": "Banco" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Banco"] }],
+  "observability": { "enabled": true }
+}
