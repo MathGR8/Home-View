@@ -2,7 +2,7 @@
 // O "name" precisa ser IGUAL ao nome do Worker criado no painel do Cloudflare.
 // Deploy: o Cloudflare roda "npx wrangler deploy" a cada push no GitHub.
 {
-  "name": "planta-mudanca",
+  "name": "home-view",
   "main": "worker/index.js",
   "compatibility_date": "2026-10-01",
   "assets": {

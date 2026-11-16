@@ -1,4 +1,4 @@
-# Planta da Mudança
+# Home-View
 
 App para planejar a mudança e a reforma: monte a planta dos cômodos com as medidas reais, coloque os móveis e organize tudo arrastando, na vista de cima e em 3D. Funciona no computador e no celular, salva sozinho e pode guardar os projetos na nuvem.
 
@@ -36,7 +36,7 @@ wrangler.jsonc   configuração do Cloudflare
 ## Publicar no Cloudflare
 
 1. No painel do Cloudflare: **Workers e Pages → Criar → Importar um repositório** e escolha este repositório.
-2. Nome do projeto: `planta-mudanca`. Ele precisa ser igual ao `name` em `wrangler.jsonc`; se usar outro nome, altere lá também.
+2. Nome do projeto: `home-view`. Ele precisa ser igual ao `name` em `wrangler.jsonc`; se usar outro nome, altere lá também.
 3. Deixe o comando de build vazio. O comando de deploy é `npx wrangler deploy`, que é o padrão.
 4. Clique em **Implantar**. A cada push no GitHub o site é atualizado sozinho.
 

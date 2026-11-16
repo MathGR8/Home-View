@@ -1,5 +1,5 @@
 /**
- * Worker da Planta da Mudança (Cloudflare).
+ * Worker da Home-View (Cloudflare).
  *
  * Serve o app (pasta public/) e a API para guardar projetos na nuvem:
  *   POST   /api/conta/criar     { usuario, senha } -> { usuario, token }

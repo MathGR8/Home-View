@@ -1,6 +1,6 @@
 {
-  "name": "Planta da Mudança",
-  "short_name": "Planta",
+  "name": "Home-View",
+  "short_name": "Home-View",
   "description": "Monte a planta dos cômodos, arraste os móveis com medidas reais e veja em 3D.",
   "start_url": "./",
   "scope": "./",
