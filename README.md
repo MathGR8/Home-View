@@ -15,7 +15,8 @@ App para planejar a mudança e a reforma: monte a planta dos cômodos com as med
   - **Avisos** de móveis batendo em outros ou atravessando paredes. Cadeiras podem ficar embaixo da mesa.
 - **Régua** para medir qualquer ponto da planta (gruda nos cantos).
 - **Lista da mudança**: cada item pode ser “Já tenho”, “Comprar”, “Decidir” ou “Não vai”, com preço e anotações. Mostra o total a comprar e exporta para planilha (CSV).
-- **3D**: perspectiva, vista de cima e por dentro, com paredes altas, baixas ou sem paredes.
+- **Mezanino metálico e escadas**: piso suspenso com altura, espessura, pilares, vigas e guarda-corpo (lados escolhidos); escadas retas com qualquer giro na planta e qualquer inclinação, cálculo de degraus (espelho, piso e conforto) e botão para encaixar no mezanino. O guarda-corpo abre sozinho onde a escada chega. Móveis podem ficar em cima do mezanino.
+- **3D**: perspectiva, vista de cima e **Andar** (primeira pessoa: anda com WASD/setas ou o controle na tela, sobe escadas, anda no mezanino, ou voa livre), com paredes altas, baixas ou sem paredes.
 - **Projetos**: crie, duplique, renomeie, apague, exporte e importe arquivos. Também dá para salvar a imagem da planta (PNG) e imprimir a planta com a lista.
 - **Nuvem**: com uma conta (só usuário e senha), os projetos ficam guardados no Cloudflare e aparecem em todos os aparelhos.
 - Funciona sem internet e pode ser instalado na tela inicial do celular (PWA).
@@ -25,7 +26,8 @@ App para planejar a mudança e a reforma: monte a planta dos cômodos com as med
 ```
 public/        o app (HTML, CSS e JavaScript puro, sem etapa de build)
   js/plan.js     editor 2D (SVG): desenho, arrastar, encaixe, girar, medir
-  js/view3d.js   visualização 3D (Three.js)
+  js/view3d.js   visualização 3D (Three.js) e navegação (andar/voar)
+  js/struct.js   mezanino e escadas (degraus, guarda-corpo, piso para caminhar)
   js/state.js    modelo do projeto, desfazer/refazer, exemplo
   js/storage.js  salvamento local e na nuvem
   js/catalog.js  catálogo de móveis

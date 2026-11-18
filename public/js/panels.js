@@ -7,6 +7,7 @@ import { icon } from './icons.js';
 import { esc, fmtLen, fmtArea, fmtMoney, signedArea, bbox, edgesOf, pointInPoly, parseNum, normAng } from './geometry.js';
 import * as A from './actions.js';
 import { dlgRoom, dlgCustomItem, exportCSV } from './dialogs.js';
+import { isMezz, isStair, stairInfo, setStairRun, STEEL_COLORS, DECK_COLORS, SIDE_NAMES, STRUCT_KEYS } from './struct.js';
 
 // ---------- utilitários de HTML ----------
 const numF = (label, f, v, unit = 'cm', extra = '') => `<label class="fld"><span>${label}</span><div class="unit"><input class="inp" data-f="${f}" inputmode="decimal" autocomplete="off" value="${fmtIn(v)}" ${extra}><em>${unit}</em></div></label>`;
@@ -156,6 +157,7 @@ export function renderProps() {
 }
 
 function itemProps(it) {
+  if (it.layer === 'struct') return structProps(it);
   const st = it.status || 'tenho';
   const lockT = it.locked ? 'Destravar posição' : 'Travar posição';
   let h = `<div class="ph"><span class="dot" style="--c:${esc(it.color)}"></span><input class="inp" data-f="name" value="${esc(it.name)}" aria-label="Nome"></div>`;
@@ -167,10 +169,53 @@ function itemProps(it) {
   h += statusHTML(st, it.price, it.note);
   h += `<h3>Tipo</h3><div class="grid2"><label class="fld"><span>Fica</span><select class="inp" data-f="layer"><option value="normal" ${it.layer === 'normal' ? 'selected' : ''}>No chão</option><option value="floor" ${it.layer === 'floor' ? 'selected' : ''}>Tapete (por baixo)</option><option value="wall" ${it.layer === 'wall' ? 'selected' : ''}>Na parede / suspenso</option></select></label>`;
   h += it.layer === 'wall' ? numF('Altura do chão', 'elev', it.elev || 0) : `<label class="fld"><span>Formato</span><select class="inp" data-f="shape"><option value="rect" ${it.shape !== 'round' ? 'selected' : ''}>Retangular</option><option value="round" ${it.shape === 'round' ? 'selected' : ''}>Redondo / oval</option></select></label>`;
-  h += `</div><label class="fld" style="margin-top:8px"><span>Desenho</span><select class="inp" data-f="sym">${SYMBOLS.map(([k, n]) => `<option value="${k}" ${it.sym === k ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
+  h += `</div>`;
+  if (store.p.items.some(isMezz)) h += `<label class="fld" style="margin-top:8px"><span>Andar</span><select class="inp" data-f="lvl"><option value="0" ${!it.lvl ? 'selected' : ''}>Térreo (embaixo)</option><option value="1" ${it.lvl ? 'selected' : ''}>Em cima do mezanino</option></select></label>`;
+  h += `<label class="fld" style="margin-top:8px"><span>Desenho</span><select class="inp" data-f="sym">${SYMBOLS.map(([k, n]) => `<option value="${k}" ${it.sym === k ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
   h += `<div class="btnrow" style="margin-top:14px">${btn('saveLib', 'Salvar em Meus móveis', 'sm', '', 'book')}${btn('zoomSel', 'Centralizar na tela', 'sm', '', 'target')}</div>`;
   const a = analyze(store.p);
   if (a.bad.has(it.id)) h += `<p class="muted" style="color:var(--danger);margin-top:12px">${icon('warn', 14)} Este móvel está batendo em outro móvel ou passando da parede.</p>`;
+  return h;
+}
+
+// Mezanino e escadas
+function structProps(it) {
+  const st = it.status || 'tenho';
+  const mz = isMezz(it);
+  const lockT = it.locked ? 'Destravar posição' : 'Travar posição';
+  let h = `<div class="ph"><span class="dot" style="--c:${esc(it.color)}"></span><input class="inp" data-f="name" value="${esc(it.name)}" aria-label="Nome"></div>`;
+  h += `<div class="quick">${ib('rot', 'rotL', 'Girar 90° à esquerda', '', 'data-v="-90"')}${ib('rot', 'rotR', 'Girar 90° à direita', '', 'data-v="90"')}${ib('dup', 'copy', 'Duplicar (Ctrl+D)')}${ib('lock', it.locked ? 'lock' : 'unlock', lockT, it.locked ? 'on' : '')}${ib('del', 'trash', 'Apagar (Delete)', 'dng')}</div>`;
+  if (mz) {
+    h += `<h3>Medidas do piso</h3><div class="grid2">${numF('Largura', 'w', it.w)}${numF('Profundidade', 'd', it.d)}</div>`;
+    h += `<div class="grid2" style="margin-top:8px">${numF('Altura do piso', 'h', it.h)}${numF('Espessura', 'thick', it.thick ?? 12)}</div>`;
+    h += `<p class="tiny" style="margin:4px 0 0">Altura do chão até o piso de cima. Embaixo ficam ${fmtLen(Math.max(0, it.h - (it.thick ?? 12) - 20), 'm')} livres (descontando a viga).</p>`;
+    h += `<div class="row" style="margin-top:8px;align-items:flex-end">${numF('Giro', 'rot', it.rot, '°')}<button class="btn sm" data-act="swapWD" title="Trocar largura e profundidade">L ⇄ P</button></div>`;
+    const rails = it.rails ?? 'nsew';
+    h += `<h3>Guarda-corpo</h3><div class="grid2">${numF('Altura', 'railH', it.railH ?? 110)}<span></span></div>`;
+    h += ['s', 'n', 'w', 'e'].map((k) => `<label class="check"><span>${SIDE_NAMES[k]}</span><input type="checkbox" data-f="rail.${k}" ${rails.includes(k) ? 'checked' : ''}></label>`).join('');
+    h += `<p class="tiny" style="margin:4px 0 0">Frente = lado de baixo na planta com giro 0°. Onde a escada chega o guarda-corpo abre sozinho.</p>`;
+    h += `<h3>Estrutura (pilares, vigas)</h3>${swatches('color', it.color, STEEL_COLORS)}`;
+    h += `<h3>Piso</h3>${swatches('deck', it.deck || '#8b939c', DECK_COLORS)}`;
+    h += `<p class="tiny" style="margin:10px 0 0">Para colocar um móvel em cima: selecione o mezanino e escolha o móvel no catálogo, ou no móvel escolha <b>Andar → Em cima do mezanino</b>. Ao arrastar o mezanino, o que está em cima vai junto.</p>`;
+  } else {
+    const S = stairInfo(it);
+    h += `<h3>Medidas</h3><div class="grid3">${numF('Largura', 'w', it.w)}${numF('Comprim.', 'd', it.d)}${numF('Sobe', 'h', it.h)}</div>`;
+    h += `<p class="tiny" style="margin:4px 0 0">Comprimento = quanto ela ocupa no chão (vista de cima). Sobe = altura do chão até o topo.</p>`;
+    h += `<h3>Ângulos</h3><div class="grid2">${numF('Inclinação', 'slope', S.angle, '°')}${numF('Giro na planta', 'rot', it.rot, '°')}</div>`;
+    h += `<div class="chips" style="margin-top:8px">${[30, 35, 40, 45, 60, 75].map((a) => `<button class="chip ${Math.abs(S.angle - a) < 0.5 ? 'on' : ''}" data-act="slope" data-v="${a}">${a}°</button>`).join('')}</div>`;
+    h += `<p class="tiny" style="margin:4px 0 0">Mudar a inclinação muda o comprimento. Gire na planta pela bolinha (de 15 em 15°, ou Shift para livre) ou digite qualquer ângulo.</p>`;
+    h += `<h3>Degraus</h3><div class="row" style="align-items:flex-end">${numF('Quantidade', 'steps', S.n, '')}<button class="btn sm ${it.steps > 0 ? '' : 'pri'}" data-act="autoSteps" title="Calcular sozinho (espelho de ~18 cm)">Auto</button></div>`;
+    h += `<p class="muted" style="margin:6px 0 0">Espelho ${fmtIn(S.riser)} cm · piso ${fmtIn(S.tread)} cm · ${S.comfy ? '<span style="color:var(--ok)">confortável</span>' : `<span style="color:var(--danger)">${S.angle > 45 ? 'muito íngreme' : S.riser > 19.5 ? 'degraus altos' : 'passo fora do ideal'}</span>`} <span class="tiny">(2×espelho + piso = ${fmtIn(S.blondel)} cm; ideal 60–66)</span></p>`;
+    h += `<div class="btnrow" style="margin-top:10px">${btn('fitStair', 'Encaixar no mezanino', 'sm', '', 'target')}</div>`;
+    h += `<p class="tiny" style="margin:4px 0 0">Leva o topo da escada até a beirada do mezanino mais próximo e iguala a altura, mantendo o giro.</p>`;
+    const r = it.rails ?? 'we';
+    h += `<h3>Corrimão</h3><div class="grid2"><label class="fld"><span>Lados</span><select class="inp" data-f="rails"><option value="we" ${r === 'we' ? 'selected' : ''}>Os dois</option><option value="w" ${r === 'w' ? 'selected' : ''}>Só esquerda</option><option value="e" ${r === 'e' ? 'selected' : ''}>Só direita</option><option value="" ${r === '' ? 'selected' : ''}>Sem</option></select></label>${numF('Altura', 'railH', it.railH ?? 90)}</div>`;
+    h += `<h3>Estrutura</h3>${swatches('color', it.color, STEEL_COLORS)}`;
+    h += `<h3>Degraus (cor)</h3>${swatches('deck', it.deck || '#8b939c', DECK_COLORS)}`;
+  }
+  h += pushHTML();
+  h += statusHTML(st, it.price, it.note);
+  h += `<div class="btnrow" style="margin-top:14px">${btn('saveLib', 'Salvar em Meus móveis', 'sm', '', 'book')}${btn('zoomSel', 'Centralizar na tela', 'sm', '', 'target')}</div>`;
   return h;
 }
 
@@ -311,18 +356,22 @@ export function bindProps() {
       case 'status': store.change(() => store.selItems().forEach((i) => { i.status = d.v; })); break;
       case 'color': {
         if (d.f2 === 'rfloor') store.change(() => { store.room(s.id).floor = d.v; });
-        else store.change(() => store.selItems().forEach((i) => { i.color = d.v; }));
+        else store.change(() => store.selItems().forEach((i) => { i[d.f2 === 'deck' ? 'deck' : 'color'] = d.v; }));
         break;
       }
       case 'clearSel': store.select(null); break;
       case 'saveLib': {
         const it = store.selItems()[0];
         const def = { k: 'lib' + Date.now().toString(36), n: it.name, w: it.w, d: it.d, h: it.h, sym: it.sym, shape: it.shape, color: it.color, layer: it.layer, elev: it.elev };
+        for (const k of STRUCT_KEYS) if (it[k] !== undefined) def[k] = it[k];
         store.change((p) => p.library.push(def));
         app.toast('Salvo em “Meus móveis”');
         break;
       }
       case 'zoomSel': A.zoomToSel(); break;
+      case 'slope': store.change(() => store.selItems().filter(isStair).forEach((i) => setStairRun(i, i.h / Math.tan((+d.v * Math.PI) / 180)))); break;
+      case 'autoSteps': store.change(() => store.selItems().forEach((i) => { i.steps = 0; })); break;
+      case 'fitStair': { const m = A.fitStair(ids[0]); app.toast(m ? `Escada encaixada em “${m.name}” (sobe ${fmtLen(m.h, 'm')})` : store.p.items.some(isMezz) ? 'Gire a escada para que ela suba em direção ao mezanino' : 'Adicione um mezanino primeiro'); break; }
       case 'rlock': store.change(() => { const r = store.room(s.id); r.locked = !r.locked; }); break;
       case 'delRoom': {
         const r = store.room(s.id);
@@ -356,12 +405,29 @@ export function bindProps() {
     }
     if (s?.kind === 'items') {
       const its = store.selItems();
-      const numeric = ['w', 'd', 'h', 'rot', 'price', 'elev'];
+      const numeric = ['w', 'd', 'h', 'rot', 'price', 'elev', 'thick', 'railH', 'steps', 'slope', 'lvl'];
+      if (f.startsWith('rail.')) {
+        const k = f.slice(5);
+        store.change(() => its.forEach((i) => { const r = (i.rails ?? 'nsew').replace(k, ''); i.rails = v ? r + k : r; }));
+        return;
+      }
       let val = v;
       if (numeric.includes(f)) {
         val = parseNum(v);
         if (!Number.isFinite(val) || (['w', 'd', 'h'].includes(f) && val <= 0)) return renderProps();
         if (f === 'rot') val = normAng(val);
+        if (['thick', 'railH', 'steps'].includes(f) && val < 0) return renderProps();
+      }
+      if (f === 'slope') {
+        if (!(val >= 5 && val <= 85)) { app.toast('Use uma inclinação entre 5° e 85°'); return renderProps(); }
+        store.change(() => its.filter(isStair).forEach((i) => setStairRun(i, i.h / Math.tan((val * Math.PI) / 180))));
+        return;
+      }
+      if (f === 'd' && its.every(isStair)) { store.change(() => its.forEach((i) => setStairRun(i, val))); return; }
+      if (f === 'lvl') {
+        const miss = A.setLevel(val);
+        if (miss) app.toast('Arraste o móvel para cima do mezanino primeiro');
+        return;
       }
       if (f === 'gap') return;
       store.change(() => its.forEach((i) => { i[f] = val; if (f === 'layer' && val === 'wall' && !i.elev) i.elev = 120; }));

@@ -1,6 +1,7 @@
 // Modelo do projeto + estado da edição (seleção, desfazer/refazer).
 import { uid, normalizePoly, edgesOf, pointInPoly, itemCorners, itemBox, polysOverlap, clamp } from './geometry.js';
 import { ALL_DEFS, OPENING_TYPES } from './catalog.js';
+import { STRUCT_KEYS } from './struct.js';
 
 export const DEFAULT_SETTINGS = {
   snap: true,        // ímã: encaixar em paredes, cantos e outros móveis
@@ -24,7 +25,7 @@ export function migrate(p) {
   p.settings = { ...DEFAULT_SETTINGS, ...(p.settings || {}) };
   p.rooms ||= []; p.items ||= []; p.measures ||= []; p.library ||= [];
   for (const r of p.rooms) { r.openings ||= []; r.points = normalizePoly(r.points); r.height ||= 260; r.wallT ??= 15; }
-  for (const it of p.items) { it.rot ||= 0; it.layer ||= 'normal'; it.status ||= 'tenho'; it.shape ||= 'rect'; it.z ||= 0; }
+  for (const it of p.items) { it.rot ||= 0; it.layer ||= 'normal'; it.status ||= 'tenho'; it.shape ||= 'rect'; it.z ||= 0; it.lvl ||= 0; }
   return p;
 }
 
@@ -55,7 +56,8 @@ export function makeItem(def, x, y) {
   return {
     id: uid('i'), name: def.n, sym: def.sym || 'generic', shape: def.shape || 'rect',
     w: def.w, d: def.d, h: def.h ?? 80, x, y, rot: 0, color: def.color || '#a7b1bd',
-    layer: def.layer || 'normal', elev: def.elev || 0, status: 'tenho', price: 0, note: '', locked: false, z: 0,
+    layer: def.layer || 'normal', elev: def.elev || 0, status: 'tenho', price: 0, note: '', locked: false, z: 0, lvl: 0,
+    ...Object.fromEntries(STRUCT_KEYS.filter((k) => def[k] !== undefined).map((k) => [k, def[k]])),
   };
 }
 
@@ -82,13 +84,13 @@ const tucks = (a, b) => SEATS.has(a.sym) && TABLES.has(b.sym);
 export function analyze(p) {
   const bad = new Set();
   const pairs = [];
-  const solid = p.items.filter((i) => i.layer !== 'floor');
+  const solid = p.items.filter((i) => i.layer !== 'floor' && i.layer !== 'struct');
   const polys = new Map(solid.map((i) => [i.id, itemCorners(i)]));
   const boxes = new Map(solid.map((i) => [i.id, itemBox(i)]));
   for (let a = 0; a < solid.length; a++) {
     for (let b = a + 1; b < solid.length; b++) {
       const A = solid[a], B = solid[b];
-      if (A.layer !== B.layer || tucks(A, B) || tucks(B, A)) continue;
+      if (A.layer !== B.layer || (A.lvl || 0) !== (B.lvl || 0) || tucks(A, B) || tucks(B, A)) continue;
       const ba = boxes.get(A.id), bb = boxes.get(B.id);
       if (ba.x2 <= bb.x1 || bb.x2 <= ba.x1 || ba.y2 <= bb.y1 || bb.y2 <= ba.y1) continue;
       if (polysOverlap(polys.get(A.id), polys.get(B.id))) { bad.add(A.id); bad.add(B.id); pairs.push([A, B]); }

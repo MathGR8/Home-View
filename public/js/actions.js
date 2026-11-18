@@ -1,6 +1,7 @@
 // Ações de edição usadas pelos painéis, atalhos de teclado e menus.
 import { store, makeItem, makeRoom, makeOpening, rectPts, lPts, roomAt } from './state.js';
 import { itemBox, unionBox, bbox, edgesOf, uid, normAng, pointInPoly, clamp, offsetPoly } from './geometry.js';
+import { isMezz, nearestMezzEdge, mezzUnder } from './struct.js';
 
 let plan = null;
 export const setPlan = (p) => { plan = p; };
@@ -15,6 +16,9 @@ export function addItem(def) {
   const room = selRoom || roomAt(store.p, x, y);
   if (room) { const b = bbox(room.points); x = (b.x1 + b.x2) / 2; y = (b.y1 + b.y2) / 2; }
   const it = makeItem(def, Math.round(x), Math.round(y));
+  // com um mezanino selecionado, o móvel vai para cima dele
+  const selMezz = store.selItems().find(isMezz);
+  if (selMezz && def.layer !== 'struct') { it.x = selMezz.x; it.y = selMezz.y; it.lvl = 1; }
   // evita empilhar exatamente no mesmo lugar
   let tries = 0;
   while (tries++ < 20 && store.p.items.some((o) => Math.abs(o.x - it.x) < 5 && Math.abs(o.y - it.y) < 5)) { it.x += 20; it.y += 20; }
@@ -109,6 +113,26 @@ export function rotateSel(delta) {
       i.rot = normAng(i.rot + delta);
     }
   });
+}
+
+// Leva o topo da escada até a beirada do mezanino mais próximo e ajusta a altura
+export function fitStair(id) {
+  const s = store.item(id); if (!s) return null;
+  const near = nearestMezzEdge(store.p, s);
+  if (!near) return null;
+  store.change(() => {
+    s.x = Math.round((s.x + near.point[0] - near.top[0]) * 10) / 10;
+    s.y = Math.round((s.y + near.point[1] - near.top[1]) * 10) / 10;
+    s.h = near.m.h;
+  });
+  return near.m;
+}
+
+// Coloca/tira os itens selecionados de cima do mezanino
+export function setLevel(lvl) {
+  const its = store.selItems().filter((i) => i.layer !== 'struct');
+  store.change(() => its.forEach((i) => { i.lvl = lvl && mezzUnder(store.p, i.x, i.y) ? 1 : 0; }));
+  return its.filter((i) => !!i.lvl !== !!lvl).length;
 }
 
 export function nudge(dx, dy) {

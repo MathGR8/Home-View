@@ -1,5 +1,6 @@
 // Catálogo de móveis com medidas comuns no Brasil (largura × profundidade × altura, em cm).
-// sym = desenho na planta e modelo no 3D. layer: normal | floor (tapete) | wall (na parede).
+// sym = desenho na planta e modelo no 3D. layer: normal | floor (tapete) | wall (na parede) | struct (mezanino, escada).
+// Estruturas: h = altura do piso do mezanino / altura que a escada sobe.
 
 export const CATALOG = [
   { cat: 'Sala', items: [
@@ -75,6 +76,11 @@ export const CATALOG = [
     { k: 'caixaM', n: 'Caixa M', w: 50, d: 40, h: 40, sym: 'box', color: '#c8a26b' },
     { k: 'caixaG', n: 'Caixa G', w: 60, d: 50, h: 50, sym: 'box', color: '#c8a26b' },
     { k: 'mala', n: 'Mala', w: 70, d: 45, h: 28, sym: 'suitcase', color: '#3e5f8a' },
+  ]},
+  { cat: 'Estrutura', items: [
+    { k: 'mezz', n: 'Mezanino metálico', w: 300, d: 250, h: 280, sym: 'mezz', layer: 'struct', color: '#3c4650', deck: '#8b939c', thick: 12, railH: 110, rails: 'nsew' },
+    { k: 'escada', n: 'Escada reta', w: 90, d: 400, h: 280, sym: 'stair', layer: 'struct', color: '#3c4650', deck: '#8b939c', steps: 0, railH: 90, rails: 'we' },
+    { k: 'escada60', n: 'Escada íngreme (60°)', w: 70, d: 162, h: 280, sym: 'stair', layer: 'struct', color: '#3c4650', deck: '#8b939c', steps: 12, railH: 90, rails: 'we' },
   ]},
   { cat: 'Outros', items: [
     { k: 'arcond', n: 'Ar-condicionado', w: 85, d: 22, h: 30, sym: 'ac', color: '#f2f3f5', layer: 'wall', elev: 210 },

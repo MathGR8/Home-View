@@ -25,6 +25,38 @@ $$('#tools [data-tool], #tools [data-toggle]').forEach((b) => { b.innerHTML = ic
 $$('#zoomBox [data-zoom]').forEach((b) => { b.innerHTML = icon({ in: 'zoomIn', out: 'zoomOut', fit: 'fit' }[b.dataset.zoom]); });
 $$('#bottomNav [data-icon]').forEach((s) => { s.innerHTML = icon(s.dataset.icon, 22); });
 
+// ---------- menus minimizáveis ----------
+const UI = 'planta.ui';
+const MINS = ['left', 'right', 'tools', 'zoom', 'v3'];
+const ui = Object.fromEntries(MINS.map((k) => [k, false]));
+try { Object.assign(ui, JSON.parse(localStorage.getItem(UI) || '{}')); } catch { /* ignora */ }
+const MIN_ICON = { left: ['chevL', 'chevR'], right: ['chevR', 'chevL'], tools: ['chevL', 'chevR'], zoom: ['chevR', 'chevL'], v3: ['chevL', 'chevR'] };
+function applyUI() {
+  const app_ = $('#app');
+  for (const k of MINS) app_.classList.toggle('min-' + k, !!ui[k]);
+  const all = MINS.every((k) => ui[k]);
+  app_.classList.toggle('focus', all);
+  $$('[data-min]').forEach((b) => {
+    const k = b.dataset.min;
+    b.innerHTML = icon(b.classList.contains('edge-btn') ? MIN_ICON[k][1] : MIN_ICON[k][ui[k] ? 1 : 0], b.classList.contains('edge-btn') ? 16 : 18);
+    if (!b.classList.contains('edge-btn')) b.title = ui[k] ? 'Mostrar' : 'Minimizar';
+  });
+  $('#bFocus').innerHTML = icon(all ? 'unfocus' : 'focus');
+  $('#bFocus').classList.toggle('on', all);
+  try { localStorage.setItem(UI, JSON.stringify(ui)); } catch { /* ignora */ }
+}
+function toggleMin(k) { ui[k] = !ui[k]; applyUI(); }
+function toggleFocus() {
+  const hide = !MINS.every((k) => ui[k]);
+  for (const k of MINS) ui[k] = hide;
+  if (hide && app.isMobile()) app.closeSheets?.();
+  applyUI();
+  app.toast(hide ? 'Menus escondidos — aperte H ou o botão no topo para mostrar' : 'Menus de volta');
+}
+document.addEventListener('click', (e) => { const b = e.target.closest('[data-min]'); if (b) { e.stopPropagation(); toggleMin(b.dataset.min); } }, true);
+$('#bFocus').onclick = toggleFocus;
+applyUI();
+
 // ---------- tema ----------
 function applyTheme() {
   let t = 'auto'; try { t = localStorage.getItem(THEME) || 'auto'; } catch { /* ignora */ }
@@ -294,6 +326,12 @@ async function ensure3D() {
   if (v3) return v3;
   const { View3D } = await import('./view3d.js');
   v3 = new View3D($('#v3'));
+  window.__app.v3 = v3;
+  v3.onMode = (kind) => {
+    $$('#v3View button').forEach((x) => x.classList.toggle('on', x.dataset.v === kind));
+    $('#v3Move').hidden = kind !== 'walk';
+  };
+  v3.onFly = (fly) => $$('#v3Move button').forEach((x) => x.classList.toggle('on', (x.dataset.m === 'fly') === fly));
   $('#v3Loading').hidden = true;
   return v3;
 }
@@ -323,8 +361,12 @@ async function setView(view) {
 $('#viewSeg').addEventListener('click', (e) => { const v = e.target.closest('button')?.dataset.view; if (v) setView(v); });
 $('#v3View').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b || !v3) return;
-  $$('#v3View button').forEach((x) => x.classList.toggle('on', x === b));
   v3.view(b.dataset.v);
+});
+$('#v3Move').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b || !v3) return;
+  v3.setFly(b.dataset.m === 'fly');
+  app.toast(b.dataset.m === 'fly' ? 'Voo livre: E/▲ sobe, Q/▼ desce, atravessa tudo' : 'Caminhando: sobe escadas e anda em cima do mezanino');
 });
 $('#v3Walls').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b || !v3) return;
@@ -434,12 +476,15 @@ window.addEventListener('keydown', (e) => {
   if (mod && k === 'v') { e.preventDefault(); A.pasteSel(); return; }
   if (mod && k === 'a') { e.preventDefault(); A.selectAll(); return; }
   if (mod) return;
+  // no 3D, as teclas de andar são do 3D
+  if (app.view === '3d' && ['w', 'a', 's', 'd', 'q', 'e', 'c', ' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'pageup', 'pagedown'].includes(k)) return;
   if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); A.deleteSelection(); return; }
   if (e.key === 'Escape') { store.select(null); setTool('select'); setMulti(false); return; }
   if (k === 'r') { A.rotateSel(e.shiftKey ? -90 : 90); return; }
   if (k === 'm') { setTool(plan.tool === 'measure' ? 'select' : 'measure'); return; }
   if (k === 'v') { setTool('select'); return; }
   if (k === 'f') { plan.fit(); return; }
+  if (k === 'h') { toggleFocus(); return; }
   if (k === ' ') { plan.spaceDown = true; return; }
   const arrows = { arrowleft: [-1, 0], arrowright: [1, 0], arrowup: [0, -1], arrowdown: [0, 1] };
   if (arrows[k]) { const s = e.shiftKey ? 10 : 1; if (A.nudge(arrows[k][0] * s, arrows[k][1] * s)) e.preventDefault(); }
