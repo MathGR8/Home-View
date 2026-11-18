@@ -3,11 +3,13 @@
 // Classes (estilo dentro do SVG): b = corpo, l = linha de detalhe, f = preenchimento claro, k = preenchimento escuro.
 
 const n = (v) => Math.round(v * 10) / 10;
+const n1 = n;
 const R = (x, y, w, h, cls = 'f', rx = 0) => `<rect class="${cls}" x="${n(x)}" y="${n(y)}" width="${n(Math.max(0, w))}" height="${n(Math.max(0, h))}"${rx ? ` rx="${n(rx)}"` : ''}/>`;
 const E = (cx, cy, rx, ry, cls = 'f') => `<ellipse class="${cls}" cx="${n(cx)}" cy="${n(cy)}" rx="${n(Math.max(0, rx))}" ry="${n(Math.max(0, ry))}"/>`;
 const L = (x1, y1, x2, y2, cls = 'l') => `<line class="${cls}" x1="${n(x1)}" y1="${n(y1)}" x2="${n(x2)}" y2="${n(y2)}"/>`;
 const P = (d, cls = 'l') => `<path class="${cls}" d="${d}"/>`;
 const cl = (v, a, b) => Math.max(a, Math.min(b, v));
+import { stairInfo } from './struct.js';
 
 export function bodyShape(it, cls = 'b') {
   const hw = it.w / 2, hd = it.d / 2;
@@ -126,13 +128,46 @@ export function symbolDetails(it) {
     case 'petbed': return E(0, 0, hw * 0.7, hd * 0.65, 'f');
     case 'rack': { let s = ''; for (let y = -hd + 8; y < hd - 4; y += 9) s += L(-hw + 4, y, hw - 4, y); return s; }
     case 'pillar': return L(-hw, -hd, hw, hd) + L(hw, -hd, -hw, hd);
+    case 'mezz': {
+      // piso em chapa/grade: linhas finas na direção do lado menor + pilares
+      let s = '';
+      const sp = cl(m / 12, 12, 40);
+      if (w >= d) for (let x = -hw + sp; x < hw - 2; x += sp) s += L(x, -hd + 2, x, hd - 2, 'l faint');
+      else for (let y = -hd + sp; y < hd - 2; y += sp) s += L(-hw + 2, y, hw - 2, y, 'l faint');
+      s += R(-hw + 3, -hd + 3, w - 6, d - 6, 'l dash');
+      const c = cl(m * 0.04, 6, 12);
+      for (const [x, y] of mezzCols(it)) s += R(x - c / 2, y - c / 2, c, c, 'k col');
+      return s;
+    }
+    case 'stair': {
+      const { n, tread } = stairInfo(it);
+      let s = L(-hw + 3, -hd, -hw + 3, hd, 'l thick') + L(hw - 3, -hd, hw - 3, hd, 'l thick');
+      for (let i = 1; i < n; i++) { const y = hd - i * tread; s += L(-hw + 3, y, hw - 3, y); }
+      // seta "sobe": do pé (frente) até o topo (fundo)
+      const r = cl(w * 0.06, 2.5, 6), ah = cl(w * 0.18, 6, 16);
+      s += E(0, hd - tread / 2, r, r, 'k') + L(0, hd - tread / 2, 0, -hd + 4, 'l arrow');
+      s += P(`M${n1(-ah * 0.6)},${n1(-hd + 4 + ah)}L0,${n1(-hd + 4)}L${n1(ah * 0.6)},${n1(-hd + 4 + ah)}`, 'l arrow');
+      return s;
+    }
     default: return '';
   }
 }
 
+// Pilares do mezanino (cantos e no meio dos lados longos, no máximo a cada 3 m)
+export function mezzCols(it) {
+  const hw = it.w / 2, hd = it.d / 2, ins = Math.min(8, it.w / 4, it.d / 4);
+  const nx = Math.max(1, Math.ceil(it.w / 300)), ny = Math.max(1, Math.ceil(it.d / 300));
+  const pts = [];
+  for (let i = 0; i <= nx; i++) for (let j = 0; j <= ny; j++) {
+    if (i > 0 && i < nx && j > 0 && j < ny) continue; // só no contorno
+    pts.push([-hw + ins + ((it.w - 2 * ins) * i) / nx, -hd + ins + ((it.d - 2 * ins) * j) / ny]);
+  }
+  return pts;
+}
+
 // Miniatura para o catálogo
 export function previewSVG(def, size = 56) {
-  const it = { w: def.w, d: def.d, sym: def.sym, shape: def.shape || 'rect' };
+  const it = { w: def.w, d: def.d, h: def.h, steps: def.steps, sym: def.sym, shape: def.shape || 'rect' };
   const pad = Math.max(def.w, def.d) * 0.08 + 4;
   const vb = `${-def.w / 2 - pad} ${-def.d / 2 - pad} ${def.w + pad * 2} ${def.d + pad * 2}`;
   return `<svg class="prev" viewBox="${vb}" width="${size}" height="${size}" style="--c:${def.color}">${bodyShape(it)}${symbolDetails(it)}</svg>`;
@@ -146,5 +181,9 @@ export const SYM_CSS = `
 .l{fill:none;stroke:rgba(20,24,30,.38);stroke-width:1;vector-effect:non-scaling-stroke}
 .l.dash{stroke-dasharray:4 3}
 .l.thick{stroke-width:2.2}
+.l.faint{stroke:rgba(20,24,30,.16)}
+.l.arrow{stroke:rgba(20,24,30,.7);stroke-width:1.6}
+.k.col{fill:rgba(20,24,30,.7)}
+.rail{fill:none;stroke:rgba(20,24,30,.75);stroke-width:2.6;vector-effect:non-scaling-stroke;stroke-linecap:round}
 .leaf{fill:rgba(255,255,255,.22)}
 `;

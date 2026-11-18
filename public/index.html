@@ -27,6 +27,7 @@
       <div class="seg" id="viewSeg" role="group" aria-label="Vista">
         <button data-view="2d" class="on">2D</button><button data-view="3d">3D</button>
       </div>
+      <button class="ib" id="bFocus" title="Esconder/mostrar menus (H)" aria-label="Esconder ou mostrar menus"></button>
       <button class="ib" id="bMore" title="Mais opções" aria-label="Mais opções"></button>
     </header>
 
@@ -37,6 +38,7 @@
           <button data-tab="rooms" role="tab">Cômodos</button>
           <button data-tab="catalog" role="tab">Móveis</button>
           <button data-tab="list" role="tab">Lista</button>
+          <button class="ib sm pmin" data-min="left" title="Minimizar painel" aria-label="Minimizar painel"></button>
           <button class="ib sm sheet-x" data-close-sheet aria-label="Fechar"></button>
         </div>
         <div id="leftBody" class="panel-body"></div>
@@ -46,7 +48,9 @@
         <svg id="plan" role="application" aria-label="Planta (vista de cima)"></svg>
         <div id="v3" class="v3" hidden>
           <div class="v3-bar">
-            <div class="seg sm" id="v3View"><button data-v="iso" class="on">Perspectiva</button><button data-v="top">De cima</button><button data-v="walk">Por dentro</button></div>
+            <button class="tb tmin" data-min="v3" title="Minimizar barra" aria-label="Minimizar barra"></button>
+            <div class="seg sm" id="v3View"><button data-v="iso" class="on">Perspectiva</button><button data-v="top">De cima</button><button data-v="walk">Andar</button></div>
+            <div class="seg sm" id="v3Move" hidden><button data-m="walk" class="on">Caminhar</button><button data-m="fly">Voar</button></div>
             <div class="seg sm" id="v3Walls"><button data-w="full">Paredes</button><button data-w="low" class="on">Baixas</button><button data-w="none">Sem</button></div>
           </div>
           <div class="v3-loading" id="v3Loading">Carregando 3D…</div>
@@ -58,12 +62,17 @@
           <span class="tsep"></span>
           <button class="tb" data-toggle="snap" title="Ímã: encaixar em paredes, cantos e móveis"></button>
           <button class="tb" data-toggle="snapGrid" title="Encaixar na grade"></button>
+          <span class="tsep"></span>
+          <button class="tb tmin" data-min="tools" title="Minimizar ferramentas" aria-label="Minimizar ferramentas"></button>
         </div>
         <div class="zoom" id="zoomBox">
+          <button class="tb tmin" data-min="zoom" title="Minimizar zoom" aria-label="Minimizar zoom"></button>
           <button class="tb" data-zoom="in" title="Aproximar"></button>
           <button class="tb" data-zoom="out" title="Afastar"></button>
           <button class="tb" data-zoom="fit" title="Ver tudo"></button>
         </div>
+        <button class="edge-btn l" data-min="left" title="Mostrar painel de móveis" aria-label="Mostrar painel da esquerda"></button>
+        <button class="edge-btn r" data-min="right" title="Mostrar ajustes" aria-label="Mostrar painel da direita"></button>
         <div class="scale" id="scaleBar"><i></i><span></span></div>
         <button class="warn-chip" id="warnChip" hidden></button>
         <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -71,6 +80,7 @@
 
       <aside id="props" class="panel right" aria-label="Propriedades">
         <div class="sheet-grip" id="propsGrip"></div>
+        <div class="phead"><span>Ajustes</span><button class="ib sm pmin" data-min="right" title="Minimizar painel" aria-label="Minimizar painel"></button></div>
         <div id="propsBody" class="panel-body"></div>
       </aside>
     </div>

@@ -263,6 +263,20 @@ export function dlgHelp() {
       <li>Arraste os móveis. Com o <b>ímã</b> ligado, eles grudam nas paredes, nos cantos e nos outros móveis.</li>
       <li>Veja o resultado no <b>3D</b> (botão no topo).</li>
     </ol>
+    <h3>Mezanino e escadas</h3>
+    <ol class="muted" style="padding-left:18px;margin:0;display:grid;gap:6px">
+      <li><b>Móveis → Estrutura → Mezanino metálico</b>: ajuste largura, profundidade, altura do piso, guarda-corpo e cores.</li>
+      <li>Adicione uma <b>Escada</b>, gire no ângulo que precisar (bolinha de giro ou digitando) e escolha a inclinação. <b>Encaixar no mezanino</b> leva o topo dela até a beirada e iguala a altura; o guarda-corpo abre sozinho ali.</li>
+      <li>Para pôr móveis em cima: selecione o mezanino e escolha o móvel, ou no móvel use <b>Andar → Em cima do mezanino</b>.</li>
+    </ol>
+    <h3>Andar no 3D</h3>
+    <dl>
+      <dt>Andar</dt><dd>botão “Andar” no 3D: você fica na altura dos olhos, sobe a escada e anda no mezanino</dd>
+      <dt><span class="kbd">W</span> <span class="kbd">A</span> <span class="kbd">S</span> <span class="kbd">D</span> / setas</dt><dd>andar (Shift: mais rápido) · arrastar: olhar em volta</dd>
+      <dt><span class="kbd">E</span> <span class="kbd">Q</span></dt><dd>subir / descer (modo Voar, atravessa tudo)</dd>
+      <dt>Clique duplo</dt><dd>no chão ou no mezanino: vai até lá</dd>
+      <dt>Celular</dt><dd>controle redondo para andar, arrastar a tela para olhar, ▲▼ no modo Voar</dd>
+    </dl>
     <h3>No computador</h3>
     <dl>
       <dt>Arrastar no vazio</dt><dd>move a planta · roda do mouse: zoom</dd>

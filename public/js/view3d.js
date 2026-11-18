@@ -1,9 +1,14 @@
 // Visualização 3D (Three.js). 1 unidade = 1 metro. Planta (x, y) -> 3D (x, 0, y).
 import * as T from '../vendor/three.bundle.js';
-import { edgesOf, isConvex, rad } from './geometry.js';
+import { edgesOf, isConvex, rad, clamp } from './geometry.js';
 import { openingSeg } from './state.js';
+import { isMezz, isStair, stairInfo, mezzRails, mezzUnder, floorAt } from './struct.js';
+import { mezzCols } from './symbols.js';
 
 const M = 0.01;
+const EYE = 160; // altura dos olhos (cm)
+const MOVE_KEYS = new Set(['w', 'a', 's', 'd', 'q', 'e', 'c', ' ', 'shift', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'pageup', 'pagedown']);
+const typing = (e) => /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || '') || document.querySelector('dialog[open]');
 
 export class View3D {
   constructor(el) {
@@ -36,6 +41,183 @@ export class View3D {
     this.running = false;
     new ResizeObserver(() => this.resize()).observe(el);
     this.renderer.domElement.addEventListener('pointerdown', () => { this.interacted = true; });
+    // navegação livre
+    this.V3 = this.camera.position.constructor;
+    this.camera.rotation.order = 'YXZ';
+    this.mode = 'orbit'; // orbit | walk
+    this.fly = false;
+    this.keys = new Set();
+    this.joy = { x: 0, y: 0 };
+    this.vert = 0;
+    this.yaw = 0; this.pitch = 0; this.feet = 0;
+    this.anim = null;
+    this.onFly = () => {};
+    this.bindMove();
+  }
+
+  // ---------- andar / voar ----------
+  bindMove() {
+    window.addEventListener('keydown', (e) => {
+      if (!this.running || typing(e) || e.ctrlKey || e.metaKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (!MOVE_KEYS.has(k)) return;
+      this.keys.add(k);
+      if (k.startsWith('arrow') || k.startsWith('page') || k === ' ') e.preventDefault();
+      if (this.mode === 'walk' && !this.fly && ['q', 'e', 'c', ' ', 'pageup', 'pagedown'].includes(k)) this.setFly(true);
+    });
+    window.addEventListener('keyup', (e) => { this.keys.delete(e.key.toLowerCase()); if (e.key === 'Shift') this.keys.delete('shift'); });
+    window.addEventListener('blur', () => this.keys.clear());
+    const cv = this.renderer.domElement;
+    let look = null, tap = null, lastTap = null;
+    cv.addEventListener('pointerdown', (e) => {
+      tap = { x: e.clientX, y: e.clientY, t: performance.now() };
+      if (this.mode !== 'walk' || look) return;
+      look = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      try { cv.setPointerCapture(e.pointerId); } catch { /* ignora */ }
+    });
+    cv.addEventListener('pointermove', (e) => {
+      if (!look || e.pointerId !== look.id) return;
+      const k = e.pointerType === 'mouse' ? 0.004 : 0.006;
+      this.yaw += (e.clientX - look.x) * k;
+      this.pitch = clamp(this.pitch + (e.clientY - look.y) * k, -1.45, 1.45);
+      look.x = e.clientX; look.y = e.clientY;
+    });
+    const up = (e) => {
+      if (look && e.pointerId === look.id) look = null;
+      if (!tap) return;
+      const moved = Math.hypot(e.clientX - tap.x, e.clientY - tap.y), now = performance.now();
+      if (moved < 8 && now - tap.t < 350) {
+        if (lastTap && now - lastTap.t < 380 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) { this.goToScreen(e.clientX, e.clientY); lastTap = null; }
+        else lastTap = { x: e.clientX, y: e.clientY, t: now };
+      }
+      tap = null;
+    };
+    cv.addEventListener('pointerup', up);
+    cv.addEventListener('pointercancel', () => { look = null; tap = null; });
+    cv.addEventListener('wheel', (e) => {
+      if (this.mode !== 'walk') return;
+      e.preventDefault();
+      const f = this.fwd();
+      const d = clamp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.002), -0.6, 0.6);
+      this.camera.position.x += f[0] * d; this.camera.position.z += f[1] * d;
+      if (this.fly) this.camera.position.y = Math.max(0.2, this.camera.position.y + Math.sin(this.pitch) * d);
+    }, { passive: false });
+
+    // controle na tela (celular) + subir/descer
+    const joy = document.createElement('div');
+    joy.className = 'joy'; joy.hidden = true;
+    joy.innerHTML = '<i></i>';
+    joy.title = 'Arraste para andar';
+    const knob = joy.firstChild;
+    let jid = null;
+    const setJoy = (e) => {
+      const r = joy.getBoundingClientRect(), R = r.width / 2;
+      let dx = e.clientX - (r.left + R), dy = e.clientY - (r.top + R);
+      const l = Math.hypot(dx, dy), max = R * 0.62;
+      if (l > max) { dx *= max / l; dy *= max / l; }
+      knob.style.transform = `translate(${dx}px, ${dy}px)`;
+      this.joy = { x: dx / max, y: -dy / max };
+    };
+    joy.addEventListener('pointerdown', (e) => { jid = e.pointerId; joy.setPointerCapture(e.pointerId); setJoy(e); e.preventDefault(); });
+    joy.addEventListener('pointermove', (e) => { if (e.pointerId === jid) setJoy(e); });
+    const jend = (e) => { if (e.pointerId !== jid) return; jid = null; this.joy = { x: 0, y: 0 }; knob.style.transform = ''; };
+    joy.addEventListener('pointerup', jend); joy.addEventListener('pointercancel', jend);
+    const vb = document.createElement('div');
+    vb.className = 'vbtns'; vb.hidden = true;
+    vb.innerHTML = '<button data-v="1" aria-label="Subir" title="Subir (E)">▲</button><button data-v="-1" aria-label="Descer" title="Descer (Q)">▼</button>';
+    vb.addEventListener('pointerdown', (e) => { const b = e.target.closest('button'); if (!b) return; this.vert = +b.dataset.v; b.setPointerCapture(e.pointerId); e.preventDefault(); });
+    for (const ev of ['pointerup', 'pointercancel']) vb.addEventListener(ev, () => { this.vert = 0; });
+    const hint = document.createElement('div');
+    hint.className = 'v3-hint'; hint.hidden = true;
+    this.el.append(joy, vb, hint);
+    this.ui = { joy, vb, hint };
+  }
+
+  fwd() { return [-Math.sin(this.yaw), -Math.cos(this.yaw)]; }
+
+  setFly(on) {
+    this.fly = on;
+    if (!on && this.mode === 'walk') this.feet = floorAt(this.p, this.camera.position.x / M, this.camera.position.z / M, Math.max(0, this.camera.position.y / M - EYE) + 30);
+    this.ui.vb.hidden = !(on && this.mode === 'walk');
+    this.onFly(on);
+  }
+
+  showHint(txt) {
+    const h = this.ui.hint;
+    h.textContent = txt; h.hidden = false; h.classList.remove('fade');
+    clearTimeout(this.hintT);
+    this.hintT = setTimeout(() => h.classList.add('fade'), 6000);
+  }
+
+  // Ponto do chão (térreo ou mezanino) embaixo do cursor
+  pickFloor(cx, cy) {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    const v = new this.V3(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1, 0.5).unproject(this.camera);
+    const o = this.camera.position, dir = v.sub(o).normalize();
+    if (Math.abs(dir.y) < 1e-4) return null;
+    const planes = [0, ...new Set((this.p?.items || []).filter(isMezz).map((m) => m.h * M))];
+    let best = null;
+    for (const y of planes) {
+      const t = (y - o.y) / dir.y;
+      if (t <= 0.05 || t > 300) continue;
+      const x = o.x + dir.x * t, z = o.z + dir.z * t;
+      if (y > 0 && Math.abs(mezzUnder(this.p, x / M, z / M) * M - y) > 0.001) continue;
+      if (!best || t < best.t) best = { t, x, y, z };
+    }
+    return best;
+  }
+
+  goToScreen(cx, cy) {
+    const hit = this.pickFloor(cx, cy);
+    if (!hit) return;
+    const c = this.camera.position;
+    if (this.mode === 'walk') {
+      const ty = this.fly ? c.y + (hit.y - (c.y - EYE * M)) : hit.y + EYE * M;
+      this.anim = { t: 0, from: [c.x, c.y, c.z], to: [hit.x, ty, hit.z], feet: hit.y / M };
+    } else {
+      const tg = this.controls.target;
+      const dx = hit.x - tg.x, dy = hit.y - tg.y, dz = hit.z - tg.z;
+      this.anim = { t: 0, from: [c.x, c.y, c.z, tg.x, tg.y, tg.z], to: [c.x + dx, c.y + dy, c.z + dz, hit.x, hit.y, hit.z] };
+    }
+  }
+
+  move(dt) {
+    const c = this.camera.position, K = this.keys;
+    if (this.anim) {
+      const a = this.anim; a.t = Math.min(1, a.t + dt / 0.45);
+      const e = a.t < 0.5 ? 2 * a.t * a.t : 1 - (-2 * a.t + 2) ** 2 / 2;
+      const v = a.from.map((f, i) => f + (a.to[i] - f) * e);
+      c.set(v[0], v[1], v[2]);
+      if (v.length > 3) this.controls.target.set(v[3], v[4], v[5]);
+      if (a.t >= 1) { if (a.feet !== undefined) this.feet = a.feet; this.anim = null; }
+      return;
+    }
+    const has = (...ks) => ks.some((k) => K.has(k));
+    const f = clamp((has('w', 'arrowup') ? 1 : 0) - (has('s', 'arrowdown') ? 1 : 0) + this.joy.y, -1, 1);
+    const r = clamp((has('d', 'arrowright') ? 1 : 0) - (has('a', 'arrowleft') ? 1 : 0) + this.joy.x, -1, 1);
+    const u = clamp((has('e', ' ', 'pageup') ? 1 : 0) - (has('q', 'c', 'pagedown') ? 1 : 0) + this.vert, -1, 1);
+    const fast = K.has('shift');
+    if (this.mode === 'walk') {
+      const sp = (fast ? 3.4 : 1.5) * dt;
+      const [fx, fz] = this.fwd();
+      c.x += (fx * f + -fz * r) * sp; c.z += (fz * f + fx * r) * sp;
+      if (this.fly) c.y = Math.max(0.2, c.y + u * sp);
+      else {
+        const tgt = floorAt(this.p, c.x / M, c.z / M, this.feet);
+        this.feet += (tgt - this.feet) * Math.min(1, dt * (tgt > this.feet ? 14 : 9));
+        c.y = (this.feet + EYE) * M;
+      }
+      this.camera.rotation.set(this.pitch, this.yaw, 0);
+      return;
+    }
+    if (!f && !r && !u) return;
+    const tg = this.controls.target;
+    let dx = tg.x - c.x, dz = tg.z - c.z;
+    const dist = Math.hypot(dx, dz, tg.y - c.y);
+    const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
+    const sp = Math.max(1.2, dist * 0.7) * (fast ? 2.5 : 1) * dt;
+    const mx = (dx * f + -dz * r) * sp, mz = (dz * f + dx * r) * sp, my = u * sp;
+    c.x += mx; c.y += my; c.z += mz; tg.x += mx; tg.y += my; tg.z += mz;
   }
 
   mat(color, opts = {}) {
@@ -58,15 +240,18 @@ export class View3D {
     if (this.running) return;
     this.running = true;
     this.resize();
+    let last = performance.now();
     const loop = () => {
       if (!this.running) return;
-      this.controls.update();
+      const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000); last = now;
+      this.move(dt);
+      if (this.mode === 'orbit') this.controls.update();
       this.renderer.render(this.scene, this.camera);
       requestAnimationFrame(loop);
     };
     loop();
   }
-  stop() { this.running = false; }
+  stop() { this.running = false; this.keys.clear(); }
 
   clear() {
     this.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
@@ -86,6 +271,7 @@ export class View3D {
 
   build(p, keepCamera = true) {
     this.clear();
+    this.p = p;
     const all = [];
     // pisos
     for (const r of p.rooms) {
@@ -101,7 +287,7 @@ export class View3D {
     const ops = [];
     for (const r of p.rooms) for (const o of r.openings) { const sg = openingSeg(r, o); if (sg) ops.push({ o, s: sg.s, t: sg.t, T: r.wallT }); }
     for (const r of p.rooms) this.buildWalls(r, ops);
-    for (const it of p.items) this.buildItem(it);
+    for (const it of p.items) this.buildItem(it, p);
     for (const it of p.items) all.push([it.x, it.y]);
     // chão externo
     const ground = new T.Mesh(new T.PlaneGeometry(400, 400), this.mat('#dfe3e6'));
@@ -121,6 +307,25 @@ export class View3D {
   view(kind) {
     const { cx, cz, size } = this.bounds || { cx: 0, cz: 0, size: 6 };
     const dist = Math.max(4, size * 1.25);
+    this.anim = null;
+    const walk = kind === 'walk';
+    this.onMode?.(kind);
+    this.mode = walk ? 'walk' : 'orbit';
+    this.controls.enabled = !walk;
+    this.camera.fov = walk ? 70 : 50; this.camera.updateProjectionMatrix();
+    this.ui.joy.hidden = !walk;
+    this.ui.vb.hidden = !(walk && this.fly);
+    if (walk) {
+      const x = cx, z = cz + size * 0.45;
+      this.yaw = 0; this.pitch = -0.08;
+      this.feet = this.fly ? 0 : floorAt(this.p || { items: [] }, x / M, z / M, 0);
+      this.camera.position.set(x, (this.feet + EYE) * M, z);
+      this.camera.rotation.set(this.pitch, this.yaw, 0);
+      const touch = matchMedia('(pointer: coarse)').matches;
+      this.showHint(touch ? 'Arraste a tela para olhar · use o controle redondo para andar · toque duas vezes num ponto do chão para ir até lá' : 'Arraste para olhar · W A S D ou setas para andar (Shift = correr) · Q/E descer/subir · clique duas vezes no chão para ir até lá');
+      return;
+    }
+    this.ui.hint.hidden = true;
     if (kind === 'top') this.camera.position.set(cx, dist * 1.3, cz + 0.01);
     else if (kind === 'walk') this.camera.position.set(cx, 1.6, cz + size * 0.45);
     else this.camera.position.set(cx + dist * 0.55, dist * 0.8, cz + dist * 0.85);
@@ -175,14 +380,17 @@ export class View3D {
     }
   }
 
-  buildItem(it) {
+  buildItem(it, p) {
     const g = new T.Group();
     const w = it.w * M, d = it.d * M, h = Math.max(0.01, it.h * M);
     const c = it.color;
     const dark = shade(c, -0.18), light = shade(c, 0.22);
-    const base = it.layer === 'wall' ? (it.elev || 0) * M : 0;
+    // em cima do mezanino: sobe junto com o piso dele
+    const base = (it.lvl ? mezzUnder(p, it.x, it.y) * M : 0) + (it.layer === 'wall' ? (it.elev || 0) * M : 0);
     const B = (bw, bh, bd, col, x, y, z) => this.box(bw, bh, bd, col, x, base + y, z, g);
-    switch (it.sym) {
+    if (isMezz(it)) this.buildMezz(it, g, p);
+    else if (isStair(it)) this.buildStair(it, g);
+    else switch (it.sym) {
       case 'bed': case 'crib': {
         const mh = Math.min(h, 0.55);
         B(w, mh * 0.55, d, dark, 0, mh * 0.275, 0);
@@ -284,6 +492,79 @@ export class View3D {
     g.position.set(it.x * M, 0, it.y * M);
     g.rotation.y = -rad(it.rot || 0);
     this.group.add(g);
+  }
+
+  steel(color) { return { metalness: 0.45, roughness: 0.45 }; }
+
+  // Mezanino metálico: piso, vigas, barrotes, pilares e guarda-corpo
+  buildMezz(it, g, p) {
+    const col = it.color, deck = it.deck || '#8b939c', so = this.steel(col);
+    const w = it.w * M, d = it.d * M, H = Math.max(0.3, it.h * M), t = Math.max(0.02, (it.thick ?? 12) * M);
+    const bh = Math.min(0.2, Math.max(0.05, H - t - 0.3)), yb = H - t - bh / 2, bt = 0.08;
+    this.box(w, t, d, deck, 0, H - t / 2, 0, g, { roughness: 0.55, metalness: 0.3 });
+    this.box(w, bh, bt, col, 0, yb, d / 2 - bt / 2, g, so);
+    this.box(w, bh, bt, col, 0, yb, -d / 2 + bt / 2, g, so);
+    this.box(bt, bh, d - 2 * bt, col, w / 2 - bt / 2, yb, 0, g, so);
+    this.box(bt, bh, d - 2 * bt, col, -w / 2 + bt / 2, yb, 0, g, so);
+    // barrotes a cada ~80 cm no vão menor
+    const alongX = w < d; // barrote atravessa o lado menor
+    const span = alongX ? d : w, nJ = Math.max(1, Math.round(span / 0.8));
+    for (let i = 1; i < nJ; i++) {
+      const v = -span / 2 + (span * i) / nJ;
+      if (alongX) this.box(w - 2 * bt, bh * 0.75, 0.05, col, 0, H - t - bh * 0.375, v, g, so);
+      else this.box(0.05, bh * 0.75, d - 2 * bt, col, v, H - t - bh * 0.375, 0, g, so);
+    }
+    // pilares com chapa de base
+    const ch = H - t - bh;
+    if (ch > 0.05) for (const [x, y] of mezzCols(it)) {
+      this.box(0.1, ch, 0.1, col, x * M, ch / 2, y * M, g, so);
+      this.box(0.2, 0.012, 0.2, col, x * M, 0.006, y * M, g, so);
+    }
+    // guarda-corpo (abre onde a escada chega)
+    const rh = (it.railH ?? 110) * M;
+    if (rh > 0.05) for (const r of mezzRails(p, it)) this.railLine(g, r.a, r.b, H, rh, col, so, true);
+  }
+
+  // Guarda-corpo reto entre dois pontos locais (cm), em cima da altura y0 (m)
+  railLine(g, a, b, y0, rh, col, so, kick) {
+    const ax = a[0] * M, az = a[1] * M, bx = b[0] * M, bz = b[1] * M;
+    const L = Math.hypot(bx - ax, bz - az); if (L < 0.05) return;
+    const ang = -Math.atan2(bz - az, bx - ax);
+    // puxa 3 cm para dentro (em direção ao centro)
+    let nx = -(bz - az) / L, nz = (bx - ax) / L;
+    const mx = (ax + bx) / 2, mz = (az + bz) / 2;
+    if (nx * -mx + nz * -mz < 0) { nx = -nx; nz = -nz; }
+    const cx = mx + nx * 0.03, cz = mz + nz * 0.03;
+    const bar = (hh, th, y) => { const m = this.box(L, hh, th, col, cx, y, cz, g, so); m.rotation.y = ang; };
+    bar(0.045, 0.05, y0 + rh);
+    bar(0.025, 0.025, y0 + rh * 0.5);
+    if (kick) bar(0.1, 0.008, y0 + 0.05);
+    const np = Math.max(1, Math.ceil(L / 1.2));
+    for (let i = 0; i <= np; i++) {
+      const f = i / np;
+      this.box(0.04, rh, 0.04, col, ax + (bx - ax) * f + nx * 0.03, y0 + rh / 2, az + (bz - az) * f + nz * 0.03, g, so);
+    }
+  }
+
+  // Escada reta: duas longarinas inclinadas, degraus e corrimão
+  buildStair(it, g) {
+    const S = stairInfo(it), col = it.color, deck = it.deck || '#8b939c', so = this.steel(col);
+    const w = it.w * M, d = Math.max(0.05, it.d * M), H = Math.max(0.05, it.h * M);
+    const r = S.riser * M, tr = S.tread * M;
+    const ang = Math.atan2(H, d), L = Math.hypot(H, d), sh = 0.2;
+    for (const sx of [-1, 1]) {
+      const m = this.box(0.02, sh, L, col, sx * (w / 2 - 0.01), H / 2 - 0.04, 0, g, so);
+      m.rotation.x = ang;
+    }
+    for (let i = 0; i < S.n; i++) this.box(w - 0.04, 0.035, tr + 0.02, deck, 0, (i + 1) * r - 0.0175, d / 2 - (i + 0.5) * tr, g, { roughness: 0.55, metalness: 0.3 });
+    const rh = (it.railH ?? 90) * M, rails = it.rails ?? 'we';
+    if (rh > 0.05) for (const [k, sx] of [['w', -1], ['e', 1]]) {
+      if (!rails.includes(k)) continue;
+      const x = sx * (w / 2 - 0.01);
+      const bar = this.box(0.045, 0.045, L, col, x, H / 2 + rh, 0, g, so); bar.rotation.x = ang;
+      const np = Math.max(1, Math.ceil(L / 1.2));
+      for (let j = 0; j <= np; j++) { const f = j / np; this.box(0.035, rh, 0.035, col, x, f * H + rh / 2, d / 2 - f * d, g, so); }
+    }
   }
 
   snapshot() { this.renderer.render(this.scene, this.camera); return this.renderer.domElement.toDataURL('image/png'); }

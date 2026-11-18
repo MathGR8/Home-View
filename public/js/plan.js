@@ -6,6 +6,7 @@ import {
 import { store, analyze, openingSeg, roomAt } from './state.js';
 import { bodyShape, symbolDetails, SYM_CSS } from './symbols.js';
 import { STATUS } from './catalog.js';
+import { isMezz, isStruct, mezzRails, stairInfo } from './struct.js';
 
 const PLAN_CSS = `
 .grid-minor{stroke:var(--grid1);stroke-width:1;vector-effect:non-scaling-stroke;fill:none}
@@ -33,6 +34,9 @@ const PLAN_CSS = `
 .item.out .b{fill-opacity:.35}
 .item.bad .b{stroke:#e53e3e;stroke-width:2.4;stroke-dasharray:none}
 .item.bad .hatch{fill:url(#hatch)}
+.item.mezz .b{fill-opacity:.38;stroke-width:1.6}
+.item.stair .b{fill:color-mix(in srgb,var(--c) 30%,#fff)}
+.item.up .b{stroke:#2b6cb0;stroke-width:1.4}
 .selbox{fill:none;stroke:var(--accent);stroke-width:2;vector-effect:non-scaling-stroke}
 .selbox.multi{stroke-dasharray:6 4}
 .handle{fill:#fff;stroke:var(--accent);stroke-width:2;vector-effect:non-scaling-stroke}
@@ -300,6 +304,11 @@ export class Plan {
       op.start = Object.fromEntries(its.map((i) => [i.id, [i.x, i.y]]));
       op.box0 = its.reduce((b, i) => unionBox(b, itemBox(i)), null);
       op.layer = its.every((i) => i.layer === 'wall') ? 'wall' : its.every((i) => i.layer === 'floor') ? 'floor' : 'normal';
+      // o que está em cima do mezanino anda junto com ele
+      for (const m of its.filter(isMezz)) {
+        const c = itemCorners(m);
+        for (const it of p.items) if (it.lvl && !it.locked && !op.start[it.id] && pointInPoly(it.x, it.y, c)) { op.ids.push(it.id); op.start[it.id] = [it.x, it.y]; }
+      }
     }
     if (op.type === 'room') {
       const r = store.room(op.room);
@@ -544,9 +553,14 @@ export class Plan {
   // ---------- distâncias até paredes e móveis ----------
   obstacles(exclude, layer) {
     const segs = [];
+    // nível: em cima do mezanino, estrutura ou térreo
+    const ex = exclude.map((id) => store.item(id)).filter(Boolean);
+    const mode = ex.length && ex.every((i) => i.lvl) ? 'top' : ex.length && ex.every(isStruct) ? 'struct' : 'ground';
     for (const r of store.p.rooms) for (const e of edgesOf(r.points)) segs.push([e.a, e.b]);
     for (const it of store.p.items) {
       if (exclude.includes(it.id) || it.layer === 'floor') continue;
+      if (mode === 'top' ? !(isMezz(it) || it.lvl) : mode === 'struct' ? !isStruct(it) : isMezz(it) || it.lvl) continue;
+      if (mode === 'top' && isMezz(it)) { const c = itemCorners(it); for (let i = 0; i < 4; i++) segs.push([c[i], c[(i + 1) % 4]]); continue; }
       if (layer === 'wall' ? it.layer !== 'wall' : it.layer === 'wall') continue;
       const c = itemCorners(it);
       for (let i = 0; i < 4; i++) segs.push([c[i], c[(i + 1) % 4]]);
@@ -629,10 +643,17 @@ export class Plan {
     for (const rm of p.rooms) for (const o of rm.openings) out.push(this.openingSVG(rm, o, sel, k));
     // nomes e medidas dos cômodos
     for (const rm of p.rooms) out.push(this.roomLabels(rm, k, S, exporting));
-    // móveis
-    const normal = p.items.filter((i) => i.layer === 'normal').sort((a, b) => (a.z || 0) - (b.z || 0));
-    const wall = p.items.filter((i) => i.layer === 'wall');
-    for (const it of [...normal, ...wall]) out.push(this.itemSVG(it, k, exporting));
+    // móveis do térreo, depois mezanino e escadas, depois o que está em cima do mezanino
+    const byZ = (a, b) => (a.z || 0) - (b.z || 0);
+    const lv = (l) => p.items.filter((i) => (i.lvl ? 1 : 0) === l);
+    for (const l of [0, 1]) {
+      if (l === 1) {
+        for (const it of p.items.filter(isMezz)) out.push(this.itemSVG(it, k, exporting));
+        for (const it of p.items.filter((i) => i.sym === 'stair')) out.push(this.itemSVG(it, k, exporting));
+      }
+      const its = lv(l);
+      for (const it of [...its.filter((i) => i.layer === 'normal').sort(byZ), ...its.filter((i) => i.layer === 'wall')]) out.push(this.itemSVG(it, k, exporting));
+    }
     // cotas
     for (const m of p.measures) out.push(this.measureSVG(m, k, sel?.kind === 'measure' && sel.id === m.id));
     return out.join('');
@@ -665,7 +686,7 @@ export class Plan {
     const c0 = centroid(rm.points);
     const c = pointInPoly(c0[0], c0[1], rm.points) ? c0 : [(b.x1 + b.x2) / 2, (b.y1 + b.y2) / 2];
     const lw = Math.max(rm.name.length * 8, 64) / k, lh = 34 / k;
-    const boxes = store.p.items.filter((i) => i.layer !== 'floor').map(itemBox);
+    const boxes = store.p.items.filter((i) => i.layer !== 'floor' && !isStruct(i)).map(itemBox);
     const free = (x, y) => {
       const r = { x1: x - lw / 2, y1: y - lh / 2, x2: x + lw / 2, y2: y + lh / 2 };
       if (![[r.x1, r.y1], [r.x2, r.y1], [r.x2, r.y2], [r.x1, r.y2]].every(([px, py]) => pointInPoly(px, py, rm.points))) return false;
@@ -732,13 +753,14 @@ export class Plan {
   itemSVG(it, k, exporting) {
     const S = store.p.settings;
     const a = this.analysis;
-    const cls = ['item', it.layer === 'wall' ? 'wallitem' : '', it.layer === 'floor' ? 'floor' : '', it.status === 'comprar' ? 'buy' : '', it.status === 'sai' ? 'out' : '', !exporting && a.bad.has(it.id) ? 'bad' : ''].join(' ');
+    const cls = ['item', it.layer === 'wall' ? 'wallitem' : '', isMezz(it) ? 'mezz' : '', it.sym === 'stair' ? 'stair' : '', it.lvl ? 'up' : '', it.layer === 'floor' ? 'floor' : '', it.status === 'comprar' ? 'buy' : '', it.status === 'sai' ? 'out' : '', !exporting && a.bad.has(it.id) ? 'bad' : ''].join(' ');
     let s = `<g class="${cls}" data-hit="item" data-id="${it.id}" transform="translate(${f1(it.x)} ${f1(it.y)}) rotate(${f1(it.rot || 0)})" style="--c:${esc(it.color)}">`;
     s += bodyShape(it) + symbolDetails(it);
+    if (isMezz(it)) for (const r of mezzRails(store.p, it)) s += `<line class="rail" x1="${f1(r.a[0])}" y1="${f1(r.a[1])}" x2="${f1(r.b[0])}" y2="${f1(r.b[1])}"/>`;
     if (!exporting && a.bad.has(it.id)) s += bodyShape(it, 'hatch');
     if (S.showLabels) {
       const name = it.name || '';
-      const second = S.showItemDims ? `${Math.round(it.w)}×${Math.round(it.d)}` : '';
+      const second = isMezz(it) ? `piso a ${fmtLen(it.h, 'm')}` : it.sym === 'stair' ? `sobe ${fmtLen(it.h, 'm')} · ${stairInfo(it).n} degraus` : S.showItemDims ? `${Math.round(it.w)}×${Math.round(it.d)}` : '';
       const along = it.d > it.w * 1.5 && it.w * k < 70;
       const len = along ? it.d : it.w, thick = along ? it.w : it.d;
       let fs = 11.5 / k;
