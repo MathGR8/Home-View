@@ -1,7 +1,7 @@
 // Ações de edição usadas pelos painéis, atalhos de teclado e menus.
 import { store, makeItem, makeRoom, makeOpening, makeCut, rectPts, lPts, roomAt } from './state.js';
-import { itemBox, unionBox, bbox, edgesOf, uid, normAng, pointInPoly, clamp, offsetPoly } from './geometry.js';
-import { isMezz, nearestMezzEdge, mezzUnder } from './struct.js';
+import { itemBox, unionBox, bbox, edgesOf, uid, normAng, pointInPoly, clamp, offsetPoly, centroid } from './geometry.js';
+import { isMezz, nearestMezzEdge, mezzUnder, toLocal } from './struct.js';
 
 let plan = null;
 export const setPlan = (p) => { plan = p; };
@@ -306,6 +306,16 @@ export function cutWall(roomId, edge, along, width = 100) {
   return o;
 }
 
+// Tira exatamente um pedaço de parede (a..b ao longo dela, pode incluir o canto): bom para pilares que sobram
+export function cutPiece(roomId, edge, a, b) {
+  const r = store.room(roomId); if (!r) return null;
+  const e = edgesOf(r.points)[edge]; if (!e || !(b > a)) return null;
+  const o = makeCut(e.len, edge, Math.floor(a * 10) / 10 - 0.5, b - a + 1, false, r.wallT);
+  o.piece = true;
+  store.change(() => r.openings.push(o));
+  return o;
+}
+
 // Tira (ou devolve) a parede inteira
 export function toggleWall(roomId, edge) {
   const r = store.room(roomId); if (!r) return false;
@@ -331,6 +341,25 @@ export function restoreCols(id) {
 export function removeRail(id, side) {
   const m = store.item(id); if (!m) return;
   store.change(() => { m.rails = (m.rails ?? (m.sym === 'stair' ? 'we' : 'nsew')).replace(side, ''); });
+}
+
+// Leva os itens selecionados para o centro do cômodo onde estão (ou do mezanino, se estiverem em cima dele)
+export function centerInRoom() {
+  const its = store.selItems().filter((i) => !i.locked);
+  if (!its.length) return null;
+  const b = selBox(its), cx = (b.x1 + b.x2) / 2, cy = (b.y1 + b.y2) / 2;
+  const up = its.every((i) => i.lvl) && store.p.items.find((m) => { if (!isMezz(m)) return false; const [lx, ly] = toLocal(m, cx, cy); return Math.abs(lx) <= m.w / 2 && Math.abs(ly) <= m.d / 2; });
+  let tx, ty, name;
+  if (up) { tx = up.x; ty = up.y; name = up.name; }
+  else {
+    const r = roomAt(store.p, cx, cy); if (!r) return null;
+    const bb = bbox(r.points), c0 = centroid(r.points);
+    [tx, ty] = pointInPoly(c0[0], c0[1], r.points) ? c0 : [(bb.x1 + bb.x2) / 2, (bb.y1 + bb.y2) / 2];
+    name = r.name;
+  }
+  const dx = tx - cx, dy = ty - cy;
+  store.change(() => its.forEach((i) => { i.x = Math.round((i.x + dx) * 10) / 10; i.y = Math.round((i.y + dy) * 10) / 10; }));
+  return name;
 }
 
 export function addMeasure() {

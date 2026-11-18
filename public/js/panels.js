@@ -1,7 +1,7 @@
 // Painéis: à esquerda (cômodos, catálogo, lista) e propriedades (à direita / folha no celular).
 import { app, $, $$, parseLen, fmtIn } from './ctx.js';
-import { store, analyze, roomAt } from './state.js';
-import { CATALOG, COLORS, FLOOR_COLORS, STATUS, OPENING_TYPES, SYMBOLS, FENCE_PATTERNS, GATE_STYLES, GROUND_TEX, CAT_COATS, LIGHT_SYMS } from './catalog.js';
+import { store, analyze, roomAt, lampElev, ceilingAt } from './state.js';
+import { CATALOG, COLORS, FLOOR_COLORS, STATUS, OPENING_TYPES, SYMBOLS, FENCE_PATTERNS, GATE_STYLES, GROUND_TEX, CAT_COATS, LIGHT_SYMS, FLOOR_TYPES, CAR_MODELS } from './catalog.js';
 import { previewSVG } from './symbols.js';
 import { icon } from './icons.js';
 import { esc, fmtLen, fmtArea, fmtMoney, signedArea, bbox, edgesOf, pointInPoly, parseNum, normAng } from './geometry.js';
@@ -169,7 +169,7 @@ function itemProps(it) {
   h += `<h3>Cor</h3>${swatches('color', it.color, COLORS)}`;
   h += statusHTML(st, it.price, it.note);
   h += `<h3>Tipo</h3><div class="grid2"><label class="fld"><span>Fica</span><select class="inp" data-f="layer"><option value="normal" ${it.layer === 'normal' ? 'selected' : ''}>No chão</option><option value="floor" ${it.layer === 'floor' ? 'selected' : ''}>Tapete (por baixo)</option><option value="wall" ${it.layer === 'wall' ? 'selected' : ''}>Na parede / suspenso</option></select></label>`;
-  h += it.layer === 'wall' ? numF('Altura do chão', 'elev', it.elev || 0) : `<label class="fld"><span>Formato</span><select class="inp" data-f="shape"><option value="rect" ${it.shape !== 'round' ? 'selected' : ''}>Retangular</option><option value="round" ${it.shape === 'round' ? 'selected' : ''}>Redondo / oval</option></select></label>`;
+  h += it.layer === 'wall' ? (it.ceil ? numF('Altura do chão', 'elev', lampElev(store.p, it), 'cm', 'disabled title="Presa no teto: a altura acompanha o pé-direito"') : numF('Altura do chão', 'elev', it.elev || 0)) : `<label class="fld"><span>Formato</span><select class="inp" data-f="shape"><option value="rect" ${it.shape !== 'round' ? 'selected' : ''}>Retangular</option><option value="round" ${it.shape === 'round' ? 'selected' : ''}>Redondo / oval</option></select></label>`;
   h += `</div>`;
   if (store.p.items.some(isMezz)) h += `<label class="fld" style="margin-top:8px"><span>Andar</span><select class="inp" data-f="lvl"><option value="0" ${!it.lvl ? 'selected' : ''}>Térreo (embaixo)</option><option value="1" ${it.lvl ? 'selected' : ''}>Em cima do mezanino</option></select></label>`;
   h += `<label class="fld" style="margin-top:8px"><span>Desenho</span><select class="inp" data-f="sym">${SYMBOLS.map(([k, n]) => `<option value="${k}" ${it.sym === k ? 'selected' : ''}>${n}</option>`).join('')}</select></label>`;
@@ -196,7 +196,8 @@ function extraProps(it) {
     case 'ground': h += `<h3>Acabamento</h3>${optChips('tex', it.tex || 'grass', GROUND_TEX)}<p class="tiny" style="margin:4px 0 0">O piso externo fica por baixo dos cômodos. Puxe os quadradinhos para cobrir a área que quiser.</p>`; break;
     case 'cat': h += `<h3>Pelagem</h3>${optChips('coat', it.coat || 'rajada', CAT_COATS)}`; break;
     case 'socket': case 'switch': h += `<h3>${it.sym === 'socket' ? 'Tomadas' : 'Teclas'}</h3>${optChips('mods', String(it.mods || 1), { 1: '1', 2: '2', 3: '3' })}<p class="tiny" style="margin:4px 0 0">Altura do chão (embaixo): tomada baixa 30 cm, média 110 cm, alta 220 cm; interruptor 110 cm.</p>`; break;
-    case 'indlight': h += `<h3>Lâmpadas</h3><div class="grid2">${numF('Quantidade', 'bulbs', it.bulbs || 4, '')}${numF('Altura do chão', 'elev', it.elev || 0)}</div><p class="tiny" style="margin:4px 0 0">Altura do chão = até as lâmpadas. Altura (medidas) = comprimento dos cabos até o trilho.</p>`; break;
+    case 'indlight': h += `<h3>Lâmpadas</h3><div class="grid2">${numF('Quantidade', 'bulbs', it.bulbs || 4, '')}${it.ceil ? numF('Altura do chão', 'elev', lampElev(store.p, it), 'cm', 'disabled') : numF('Altura do chão', 'elev', it.elev || 0)}</div><p class="tiny" style="margin:4px 0 0">Altura do chão = até as lâmpadas. Altura (medidas) = comprimento dos cabos até o trilho.</p>`; break;
+    case 'car': h += `<h3>Modelo</h3>${optChips('model', it.model || 'hatch', Object.fromEntries(Object.entries(CAR_MODELS).map(([k, v]) => [k, v[0]])))}<p class="tiny" style="margin:4px 0 0">A frente do carro fica para cima na planta (giro 0°). Garagem: vaga comum tem 2,5 × 5 m.</p>`; break;
     case 'person': {
       const others = store.p.items.filter((o) => o.sym === 'person' && o.id !== it.id);
       h += `<h3>Pessoa</h3>${optChips('gender', it.gender || 'm', { m: 'Homem', f: 'Mulher' })}`;
@@ -207,7 +208,12 @@ function extraProps(it) {
       break;
     }
   }
-  if (LIGHT_SYMS.has(it.sym)) h += `<label class="check" style="margin-top:8px"><span>Acesa no 3D (veja no modo Noite)</span><input type="checkbox" data-f="lightOn" ${it.lightOn !== false ? 'checked' : ''}></label>`;
+  if (LIGHT_SYMS.has(it.sym)) {
+    h += `<h3>Luz</h3><label class="check"><span>Presa no teto (acompanha o pé-direito)</span><input type="checkbox" data-f="ceil" ${it.ceil ? 'checked' : ''}></label>`;
+    if (it.ceil) h += `<p class="tiny" style="margin:2px 0 0">Teto a ${fmtLen(ceilingAt(store.p, it), 'm')} do chão${it.lvl ? ' do mezanino' : ''} → ${it.sym === 'ceilinglamp' ? 'colada no teto' : `fica a ${fmtLen(lampElev(store.p, it), 'm')} do chão`}. Mude o pé-direito no cômodo e ela acompanha.</p>`;
+    h += `<label class="check"><span>Acesa no 3D (veja no modo Noite)</span><input type="checkbox" data-f="lightOn" ${it.lightOn !== false ? 'checked' : ''}></label>`;
+    h += `<div class="btnrow" style="margin-top:6px">${btn('centerRoom', 'Centralizar no cômodo', 'sm pri', '', 'target')}</div>`;
+  }
   return h;
 }
 export const eyeOf = (it) => Math.max(20, it.h - Math.max(8, it.h * 0.065));
@@ -263,6 +269,7 @@ function pushHTML() {
     <button class="btn" data-act="push" data-d="left" title="Encostar à esquerda">${icon('arrowL', 18)}</button><span></span><button class="btn" data-act="push" data-d="right" title="Encostar à direita">${icon('arrowR', 18)}</button>
     <span></span><button class="btn" data-act="push" data-d="down" title="Encostar embaixo">${icon('arrowD', 18)}</button><span></span>
   </div><div class="lst" style="flex:1">${btn('center', 'Centralizar ↔', 'sm', 'data-a="h"', 'centerH')}${btn('center', 'Centralizar ↕', 'sm', 'data-a="v"', 'centerV')}</div></div>
+  <div class="btnrow" style="margin-top:6px">${btn('centerRoom', 'No centro do cômodo', 'sm', '', 'target')}</div>
   <p class="tiny" style="margin:6px 0 0">As setas empurram até a parede ou o próximo móvel. Toque nas distâncias azuis na planta para digitar a medida exata.</p>`;
 }
 
@@ -303,7 +310,9 @@ function roomProps(r) {
   if (isRectRoom(r)) h += `<h3>Medidas internas</h3><div class="grid2">${numF('Largura', 'rw', b.x2 - b.x1)}${numF('Profundidade', 'rh', b.y2 - b.y1)}</div><p class="tiny" style="margin:4px 0 0">Pode digitar em metros (3,5) ou centímetros (350).</p>`;
   h += `<div class="grid2" style="margin-top:8px">${numF('Pé-direito', 'rheight', r.height)}${numF('Parede', 'rwallT', r.wallT)}</div>`;
   h += `<label class="check" style="margin-top:8px"><span>Sem paredes (área externa, quintal)</span><input type="checkbox" data-f="rnowalls" ${r.noWalls ? 'checked' : ''}></label>`;
-  h += `<h3>Piso</h3>${swatches('rfloor', r.floor, FLOOR_COLORS)}`;
+  const ft = r.floorTex || 'plain';
+  h += `<h3>Piso</h3><div class="chips">${Object.entries(FLOOR_TYPES).map(([k, [n]]) => `<button class="chip ${ft === k ? 'on' : ''}" data-act="floorTex" data-v="${k}">${esc(n)}</button>`).join('')}</div>`;
+  h += `<p class="tiny" style="margin:6px 0 4px">Cor do piso${ft !== 'plain' ? ' (tinge a textura)' : ''}:</p>${swatches('rfloor', r.floor, FLOOR_COLORS)}`;
   h += `<h3>${r.noWalls ? 'Lados' : 'Paredes'}</h3>`;
   if (r.noWalls) h += `<p class="tiny" style="margin:0 0 4px">Área sem paredes: use muros, grades e portões do catálogo (Área externa) para fechar onde quiser.</p>`;
   const sideName = (e) => (Math.abs(e.dir[1]) < 0.01 ? (e.nIn[1] > 0 ? 'de cima' : 'de baixo') : Math.abs(e.dir[0]) < 0.01 ? (e.nIn[0] > 0 ? 'da esquerda' : 'da direita') : 'inclinada');
@@ -326,7 +335,7 @@ function openingProps(r, o) {
   if (!r || !o) return '';
   const e = edgesOf(r.points)[o.edge];
   const isDoor = o.type === 'door' || o.type === 'door2';
-  let h = `<div class="ph"><b style="font-size:15px">${esc(o.full ? 'Parede removida' : OPENING_TYPES[o.type]?.n)} · ${esc(r.name)}</b><div class="grow"></div>${ib('pickRoomOf', 'arrowL', 'Voltar ao cômodo', 'sm', `data-id="${r.id}"`)}</div>`;
+  let h = `<div class="ph"><b style="font-size:15px">${esc(o.full ? 'Parede removida' : o.piece ? 'Pedaço tirado' : OPENING_TYPES[o.type]?.n)} · ${esc(r.name)}</b><div class="grow"></div>${ib('pickRoomOf', 'arrowL', 'Voltar ao cômodo', 'sm', `data-id="${r.id}"`)}</div>`;
   h += `<div class="quick">${ib('del', 'trash', o.type === 'cut' ? 'Apagar o corte (a parede volta)' : 'Apagar', 'dng')}</div>`;
   if (o.type === 'cut') {
     if (o.full) h += `<p class="muted" style="margin:6px 0 0">A parede ${o.edge + 1} inteira foi removida. Apague para a parede voltar.</p>`;
@@ -420,6 +429,13 @@ export function bindProps() {
         break;
       }
       case 'zoomSel': A.zoomToSel(); break;
+      case 'centerRoom': { const n = A.centerInRoom(); app.toast(n ? `No centro de “${n}”` : 'Coloque o item dentro de um cômodo'); break; }
+      case 'floorTex': {
+        const r = store.room(s.id), def = FLOOR_TYPES[d.v];
+        store.change(() => { r.floorTex = d.v; if (def[1]) r.floor = def[1]; });
+        if (d.v === 'grass' || d.v === 'soil') app.toast('Dica: área externa sem paredes? Marque “Sem paredes” no cômodo');
+        break;
+      }
       case 'slope': store.change(() => store.selItems().filter(isStair).forEach((i) => setStairRun(i, i.h / Math.tan((+d.v * Math.PI) / 180)))); break;
       case 'autoSteps': store.change(() => store.selItems().forEach((i) => { i.steps = 0; })); break;
       case 'fitStair': { const m = A.fitStair(ids[0]); app.toast(m ? `Escada encaixada em “${m.name}” (sobe ${fmtLen(m.h, 'm')})` : store.p.items.some(isMezz) ? 'Gire a escada para que ela suba em direção ao mezanino' : 'Adicione um mezanino primeiro'); break; }
@@ -450,6 +466,11 @@ export function bindProps() {
           i[k] = v;
           if (k === 'tex' && GROUND_TEX[v]) { i.color = GROUND_TEX[v][1]; if (Object.values(GROUND_TEX).some(([n]) => n === i.name) || /^(Grama|Piso|Deck|Pedrisco|Terra)/.test(i.name)) i.name = GROUND_TEX[v][0]; }
           if (k === 'coat' && CAT_COATS[v]) i.color = CAT_COATS[v][1];
+          if (k === 'model' && CAR_MODELS[v]) {
+            const [nm, w, dd, hh] = CAR_MODELS[v];
+            if (Object.values(CAR_MODELS).some((m) => m[1] === i.w && m[2] === i.d)) { i.w = w; i.d = dd; i.h = hh; }
+            if (/^Carro /.test(i.name)) i.name = 'Carro ' + nm.toLowerCase().replace('suv', 'SUV');
+          }
           if (k === 'gender') {
             if (i.name === 'Homem' || i.name === 'Mulher') i.name = v === 'f' ? 'Mulher' : 'Homem';
             if (i.h === 175 && v === 'f') i.h = 163; else if (i.h === 163 && v === 'm') i.h = 175;
@@ -507,6 +528,7 @@ export function bindProps() {
         return;
       }
       if (f === 'gap') return;
+      if (f === 'ceil') { store.change(() => its.forEach((i) => { if (!v) i.elev = lampElev(store.p, i); i.ceil = !!v; })); return; }
       store.change(() => its.forEach((i) => { i[f] = val; if (f === 'layer' && val === 'wall' && !i.elev) i.elev = 120; }));
       return;
     }
@@ -529,7 +551,7 @@ export function bindProps() {
       const n = parseLen(v, false);
       if (!Number.isFinite(n) || n < 0) return renderProps();
       store.change(() => {
-        if (f === 'owidth') { o.width = Math.max(20, Math.min(n, e.len)); }
+        if (f === 'owidth') { o.width = o.type === 'cut' ? Math.max(4, Math.min(n, e.len + 2 * r.wallT)) : Math.max(20, Math.min(n, e.len)); }
         if (f === 'oheight') o.height = n;
         if (f === 'osill') o.sill = n;
         if (f === 'ooff') o.off = n;

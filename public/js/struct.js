@@ -8,7 +8,7 @@ export const isStruct = (it) => it?.layer === 'struct';
 
 // Campos extras que os itens carregam (copiados do catálogo / Meus móveis)
 export const STRUCT_KEYS = ['deck', 'thick', 'railH', 'rails', 'steps', 'cols', 'noCols',
-  'h2', 'tex', 'style', 'pattern', 'bulbs', 'mods', 'coat', 'gender', 'lightOn'];
+  'h2', 'tex', 'style', 'pattern', 'bulbs', 'mods', 'coat', 'gender', 'lightOn', 'ceil', 'model'];
 
 // Pilares do mezanino (cantos e no meio dos lados longos, no máximo a cada 3 m).
 // cols: 'auto' (todos) | 'corners' (só nos cantos) | 'none' (preso nas paredes). noCols: pilares removidos um a um.

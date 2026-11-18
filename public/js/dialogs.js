@@ -276,14 +276,17 @@ export function dlgHelp() {
       <li>Adicione uma <b>Escada</b>, gire no ângulo que precisar (bolinha de giro ou digitando) e escolha a inclinação. <b>Encaixar no mezanino</b> leva o topo dela até a beirada e iguala a altura; o guarda-corpo abre sozinho ali.</li>
       <li>Para pôr móveis em cima: selecione o mezanino e escolha o móvel, ou no móvel use <b>Andar → Em cima do mezanino</b>.</li>
       <li>Mezanino preso nas paredes: <b>Pilares → Nenhum</b>, ou no 3D toque num pilar e escolha <b>Tirar este pilar</b>.</li>
+      <li><b>Pegar o que está embaixo</b>: toque de novo no mesmo lugar (ou escolha na barra “Aqui tem…”). Na planta, o botão de camadas mostra <b>só o térreo</b> (mezanino transparente) ou <b>só o mezanino</b>. No 3D, o <b>Raio-X</b> deixa mezanino e escadas transparentes e o toque passa por eles.</li>
     </ol>
     <h3>Paredes, área externa e pessoas</h3>
     <ol class="muted" style="padding-left:18px;margin:0;display:grid;gap:6px">
-      <li><b>Cortar parede</b>: no cômodo, botão <b>Corte</b> na parede (largura e mureta ajustáveis) ou <b>Tirar parede</b> para remover a parede inteira. No 3D, toque na parede e escolha <b>Cortar aqui</b>.</li>
+      <li><b>Cortar parede</b>: no cômodo, botão <b>Corte</b> na parede (largura e mureta ajustáveis) ou <b>Tirar parede</b> para remover a parede inteira. No 3D, toque na parede e escolha <b>Cortar aqui</b>. Sobrou um pilarzinho no canto? Toque nele e escolha <b>Tirar este pilar</b>.</li>
       <li><b>Banheiro embaixo da escada</b>: corte a parede onde for preciso e feche com <b>Área externa → Parede divisória</b> e <b>Parede inclinada</b> (altura diferente no início e no fim acompanha a escada).</li>
       <li><b>Área externa</b>: cômodo “Quintal” ou “Área externa” (sem paredes), pisos de grama/concreto/deck, muros, grades (vertical, diagonal, losango) e portões.</li>
       <li><b>Pessoas</b>: coloque um homem e uma mulher com as alturas reais para comparar com móveis e bancadas. <b>Ver pelos olhos no 3D</b> mostra o ambiente na altura dos olhos dela/dele.</li>
-      <li><b>Luz</b>: lâmpadas, pendentes e iluminação industrial acendem no 3D no modo <b>Noite</b> (botão da lua).</li>
+      <li><b>Luz</b>: lâmpadas, plafons, spots, pendentes e iluminação industrial acendem no 3D no modo <b>Noite</b>. Com <b>Presa no teto</b> ligada, a altura acompanha o pé-direito (ou o piso do mezanino); <b>Centralizar no cômodo</b> põe a luz no meio.</li>
+      <li><b>Pisos</b>: no cômodo escolha liso, madeira, porcelanato, cerâmica, cimento queimado, concreto, deck, grama, terra ou pedrisco.</li>
+      <li><b>Garagem e escritório</b>: carros (hatch, sedã, SUV), moto, computador, monitores, notebook, teclado e impressora.</li>
     </ol>
     <h3>Andar no 3D</h3>
     <dl>
@@ -291,7 +294,8 @@ export function dlgHelp() {
       <dt>Dois controles</dt><dd>o da <b>esquerda</b> anda (frente, trás, para os lados); o da <b>direita</b> gira a câmera: para a direita gira no sentido horário, para a esquerda no anti-horário, para cima/baixo olha para cima/baixo</dd>
       <dt><span class="kbd">W</span> <span class="kbd">A</span> <span class="kbd">S</span> <span class="kbd">D</span></dt><dd>andar (Shift: mais rápido) · <span class="kbd">←</span> <span class="kbd">→</span> girar · <span class="kbd">↑</span> <span class="kbd">↓</span> frente/trás · arrastar: olhar em volta</dd>
       <dt><span class="kbd">E</span> <span class="kbd">Q</span></dt><dd>subir / descer (modo Voar, atravessa tudo)</dd>
-      <dt>Toque / clique</dt><dd>num objeto: seleciona e mostra opções (apagar, tirar pilar, cortar parede…)</dd>
+      <dt>Toque / clique</dt><dd>num objeto: seleciona e mostra opções (apagar, tirar pilar, cortar parede…). Toque de novo no mesmo lugar para pegar o que está atrás/embaixo</dd>
+      <dt>Controles</dt><dd>botão “Controles” no 3D: sensibilidade, visibilidade (transparência) e tamanho de cada controle, e <b>Mover na tela</b> para arrastar cada um para onde quiser</dd>
       <dt>Toque duplo</dt><dd>no chão ou no mezanino: vai até lá</dd>
     </dl>
     <h3>No computador</h3>

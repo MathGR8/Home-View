@@ -53,6 +53,8 @@
             <div class="seg sm" id="v3Move" hidden><button data-m="walk" class="on">Caminhar</button><button data-m="fly">Voar</button></div>
             <div class="seg sm" id="v3Walls"><button data-w="full">Paredes</button><button data-w="low" class="on">Baixas</button><button data-w="none">Sem</button></div>
             <div class="seg sm" id="v3Light" title="Noite: as lâmpadas acendem"><button data-l="day" class="on">Dia</button><button data-l="night">Noite</button></div>
+            <div class="seg sm" id="v3Xray" title="Raio-X: mezanino, escadas e o que está em cima ficam transparentes — dá para tocar no que está embaixo"><button data-x="1">Raio-X</button></div>
+            <div class="seg sm" id="v3Joy" title="Ajustar os controles na tela: sensibilidade, transparência, tamanho e posição"><button data-j="1">Controles</button></div>
           </div>
           <div class="v3-sel" id="v3Sel" hidden></div>
           <div class="v3-loading" id="v3Loading">Carregando 3D…</div>
@@ -60,6 +62,7 @@
         <div class="tools" id="tools">
           <button class="tb on" data-tool="select" title="Selecionar e mover (V)"></button>
           <button class="tb" data-toggle="multi" title="Selecionar vários (ou segure Shift / segure o dedo)"></button>
+          <button class="tb" data-toggle="lvl" title="Andar: tudo / só o térreo (mezanino transparente) / só o mezanino" hidden></button>
           <button class="tb" data-tool="measure" title="Régua: arraste para medir (M)"></button>
           <span class="tsep"></span>
           <button class="tb" data-toggle="snap" title="Ímã: encaixar em paredes, cantos e móveis"></button>
@@ -77,6 +80,7 @@
         <button class="edge-btn r" data-min="right" title="Mostrar ajustes" aria-label="Mostrar painel da direita"></button>
         <div class="scale" id="scaleBar"><i></i><span></span></div>
         <button class="warn-chip" id="warnChip" hidden></button>
+        <div class="stack-bar" id="stackBar" hidden></div>
         <div class="toast" id="toast" role="status" aria-live="polite"></div>
       </section>
 

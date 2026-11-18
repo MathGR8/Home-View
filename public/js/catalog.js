@@ -2,7 +2,8 @@
 // sym = desenho na planta e modelo no 3D. layer: normal | floor (tapete) | wall (na parede) | struct (mezanino, escada).
 // Estruturas: h = altura do piso do mezanino / altura que a escada sobe.
 // Área externa: muro (h2 = altura no fim, para muro/parede inclinada), grade (pattern), portão (style), piso (tex).
-// Iluminação (layer wall): elev = altura do chão até a lâmpada; h = comprimento do pendente.
+// Iluminação (layer wall): elev = altura do chão até a lâmpada; h = comprimento do pendente. ceil = presa no teto (a altura acompanha o pé-direito).
+// Carros: model = hatch | sedan | suv. Frente do carro em +y (desenho).
 
 export const CATALOG = [
   { cat: 'Sala', items: [
@@ -72,6 +73,20 @@ export const CATALOG = [
     { k: 'cadesc', n: 'Cadeira de escritório', w: 60, d: 60, h: 110, sym: 'officechair', shape: 'round', color: '#4c5560' },
     { k: 'gaveteiro', n: 'Gaveteiro', w: 40, d: 50, h: 60, sym: 'drawers', color: '#a98467' },
     { k: 'livros', n: 'Estante de livros', w: 80, d: 30, h: 190, sym: 'shelf', color: '#a98467' },
+    { k: 'monitor24', n: 'Monitor 24"', w: 54, d: 20, h: 42, sym: 'monitor', color: '#24272b', layer: 'wall', elev: 75 },
+    { k: 'monitor27', n: 'Monitor 27"', w: 62, d: 22, h: 48, sym: 'monitor', color: '#24272b', layer: 'wall', elev: 75 },
+    { k: 'monitor34', n: 'Monitor ultrawide 34"', w: 82, d: 24, h: 50, sym: 'monitor', color: '#24272b', layer: 'wall', elev: 75 },
+    { k: 'pc', n: 'Computador (gabinete)', w: 21, d: 45, h: 46, sym: 'pc', color: '#2b2f33' },
+    { k: 'pcmesa', n: 'Computador em cima da mesa', w: 21, d: 45, h: 46, sym: 'pc', color: '#2b2f33', layer: 'wall', elev: 75 },
+    { k: 'notebook', n: 'Notebook (aberto)', w: 36, d: 25, h: 23, sym: 'laptop', color: '#9aa1a9', layer: 'wall', elev: 75 },
+    { k: 'teclado', n: 'Teclado e mouse', w: 58, d: 16, h: 3, sym: 'keyboard', color: '#2f3237', layer: 'wall', elev: 75 },
+    { k: 'impressora', n: 'Impressora', w: 45, d: 36, h: 22, sym: 'printer', color: '#e4e6ea', layer: 'wall', elev: 75 },
+  ]},
+  { cat: 'Garagem', items: [
+    { k: 'hatch', n: 'Carro hatch', w: 180, d: 410, h: 150, sym: 'car', model: 'hatch', color: '#b8432f' },
+    { k: 'seda', n: 'Carro sedã', w: 180, d: 465, h: 147, sym: 'car', model: 'sedan', color: '#c9ced6' },
+    { k: 'suv', n: 'Carro SUV', w: 190, d: 455, h: 170, sym: 'car', model: 'suv', color: '#2b2f33' },
+    { k: 'moto', n: 'Moto', w: 80, d: 205, h: 115, sym: 'moto', color: '#2f5f8a' },
   ]},
   { cat: 'Mudança', items: [
     { k: 'caixaP', n: 'Caixa P', w: 40, d: 30, h: 30, sym: 'box', color: '#c8a26b' },
@@ -103,12 +118,17 @@ export const CATALOG = [
     { k: 'deckM', n: 'Deck de madeira', w: 300, d: 200, h: 1, sym: 'ground', tex: 'deck', color: '#a8784f', layer: 'floor' },
     { k: 'pedra', n: 'Pedrisco / cascalho', w: 200, d: 200, h: 1, sym: 'ground', tex: 'gravel', color: '#b9b2a6', layer: 'floor' },
     { k: 'terra', n: 'Terra / canteiro', w: 200, d: 100, h: 1, sym: 'ground', tex: 'soil', color: '#8a6a4f', layer: 'floor' },
+    { k: 'pisoMad', n: 'Piso de madeira', w: 300, d: 300, h: 1, sym: 'ground', tex: 'wood', color: '#b98a5e', layer: 'floor' },
+    { k: 'porcel', n: 'Porcelanato', w: 300, d: 300, h: 1, sym: 'ground', tex: 'porcelain', color: '#e4e1dc', layer: 'floor' },
+    { k: 'cimento', n: 'Cimento queimado', w: 300, d: 300, h: 1, sym: 'ground', tex: 'cement', color: '#a9a8a4', layer: 'floor' },
   ]},
   { cat: 'Elétrica e luz', items: [
-    { k: 'lampada', n: 'Lâmpada (teto)', w: 12, d: 12, h: 18, sym: 'bulb', shape: 'round', color: '#fff3c4', layer: 'wall', elev: 240 },
-    { k: 'pendente', n: 'Luminária pendente', w: 35, d: 35, h: 60, sym: 'pendant', shape: 'round', color: '#2b2f33', layer: 'wall', elev: 190 },
-    { k: 'industrial', n: 'Iluminação industrial (4 lâmpadas)', w: 200, d: 20, h: 50, sym: 'indlight', bulbs: 4, color: '#2b2f33', layer: 'wall', elev: 200 },
-    { k: 'industrial6', n: 'Iluminação industrial (6 lâmpadas)', w: 300, d: 20, h: 50, sym: 'indlight', bulbs: 6, color: '#2b2f33', layer: 'wall', elev: 200 },
+    { k: 'lampada', n: 'Lâmpada (teto)', w: 12, d: 12, h: 18, sym: 'bulb', shape: 'round', color: '#fff3c4', layer: 'wall', elev: 242, ceil: true },
+    { k: 'pendente', n: 'Luminária pendente', w: 35, d: 35, h: 60, sym: 'pendant', shape: 'round', color: '#2b2f33', layer: 'wall', elev: 200, ceil: true },
+    { k: 'industrial', n: 'Iluminação industrial (4 lâmpadas)', w: 200, d: 20, h: 50, sym: 'indlight', bulbs: 4, color: '#2b2f33', layer: 'wall', elev: 170, ceil: true },
+    { k: 'industrial6', n: 'Iluminação industrial (6 lâmpadas)', w: 300, d: 20, h: 50, sym: 'indlight', bulbs: 6, color: '#2b2f33', layer: 'wall', elev: 170, ceil: true },
+    { k: 'plafon', n: 'Plafon (luminária de teto)', w: 30, d: 30, h: 8, sym: 'ceilinglamp', shape: 'round', color: '#f4f5f7', layer: 'wall', elev: 252, ceil: true },
+    { k: 'spot', n: 'Spot embutido', w: 10, d: 10, h: 3, sym: 'ceilinglamp', shape: 'round', color: '#d8dadd', layer: 'wall', elev: 257, ceil: true },
     { k: 'tomada', n: 'Tomada (baixa)', w: 8, d: 2, h: 12, sym: 'socket', mods: 1, color: '#f4f5f7', layer: 'wall', elev: 30 },
     { k: 'tomada2', n: 'Tomada dupla (bancada)', w: 12, d: 2, h: 12, sym: 'socket', mods: 2, color: '#f4f5f7', layer: 'wall', elev: 110 },
     { k: 'tomadaA', n: 'Tomada alta (ar / TV)', w: 8, d: 2, h: 12, sym: 'socket', mods: 1, color: '#f4f5f7', layer: 'wall', elev: 220 },
@@ -150,6 +170,8 @@ export const SYMBOLS = [
   ['wallseg', 'Muro / parede'], ['fence', 'Grade'], ['gate', 'Portão'], ['ground', 'Piso externo'],
   ['bulb', 'Lâmpada'], ['pendant', 'Luminária pendente'], ['indlight', 'Iluminação industrial'], ['socket', 'Tomada'], ['switch', 'Interruptor'],
   ['cat', 'Gato'], ['rabbit', 'Coelho'], ['litter', 'Caixa de areia'], ['person', 'Pessoa'],
+  ['ceilinglamp', 'Plafon / spot'], ['monitor', 'Monitor'], ['pc', 'Computador'], ['laptop', 'Notebook'], ['keyboard', 'Teclado e mouse'], ['printer', 'Impressora'],
+  ['car', 'Carro'], ['moto', 'Moto'],
 ];
 
 // Opções dos itens especiais
@@ -158,14 +180,22 @@ export const GATE_STYLES = { panel: 'Chapa (basculante)', bars: 'Grade', slats: 
 export const GROUND_TEX = {
   grass: ['Grama', '#7fae5a'], concrete: ['Concreto', '#bdbab4'], tiles: ['Cerâmico', '#d9d4ca'],
   deck: ['Deck', '#a8784f'], gravel: ['Pedrisco', '#b9b2a6'], soil: ['Terra', '#8a6a4f'],
+  wood: ['Madeira', '#b98a5e'], porcelain: ['Porcelanato', '#e4e1dc'], cement: ['Cimento queimado', '#a9a8a4'],
 };
+// Pisos dos cômodos: liso (só a cor) ou com textura
+export const FLOOR_TYPES = {
+  plain: ['Liso', null], wood: ['Madeira', '#b98a5e'], porcelain: ['Porcelanato', '#e4e1dc'], tiles: ['Cerâmica', '#d9d4ca'],
+  cement: ['Cimento queimado', '#a9a8a4'], concrete: ['Concreto', '#bdbab4'], deck: ['Deck', '#a8784f'],
+  grass: ['Grama', '#7fae5a'], soil: ['Terra', '#8a6a4f'], gravel: ['Pedrisco', '#b9b2a6'],
+};
+export const CAR_MODELS = { hatch: ['Hatch', 180, 410, 150], sedan: ['Sedã', 180, 465, 147], suv: ['SUV', 190, 455, 170] };
 export const CAT_COATS = { frajola: ['Frajola', '#1d1d20'], rajada: ['Rajadinha', '#8f8270'], laranja: ['Laranja', '#d28a45'], preto: ['Preto', '#1d1d20'], branco: ['Branco', '#f1efea'] };
 // Itens que não contam como "batendo" (muros, grades, luz, pessoas, pets…)
-export const NO_CLASH = new Set(['wallseg', 'fence', 'gate', 'ground', 'bulb', 'pendant', 'indlight', 'socket', 'switch', 'person', 'cat', 'rabbit']);
-export const LIGHT_SYMS = new Set(['bulb', 'pendant', 'indlight']);
+export const NO_CLASH = new Set(['wallseg', 'fence', 'gate', 'ground', 'bulb', 'pendant', 'indlight', 'socket', 'switch', 'person', 'cat', 'rabbit', 'ceilinglamp', 'monitor', 'laptop', 'keyboard', 'printer']);
+export const LIGHT_SYMS = new Set(['bulb', 'pendant', 'indlight', 'ceilinglamp']);
 
 export const COLORS = ['#8fa3bf', '#c9a27e', '#b08d6e', '#a98467', '#d9cbb8', '#e9e4dc', '#dfe3e8', '#2f3237', '#6aa36f', '#c8a26b', '#d98e73', '#9b8ec4', '#e8d27c', '#5a6b7d', '#f4f5f7', '#c97b8e'];
-export const FLOOR_COLORS = ['#efe6d8', '#e3d2b8', '#c9a77f', '#ddd9d2', '#cfd6dc', '#e9e1f0', '#dbe8d9', '#f3efe7', '#8fbf6a', '#bdbab4'];
+export const FLOOR_COLORS = ['#efe6d8', '#e3d2b8', '#c9a77f', '#b98a5e', '#ddd9d2', '#e4e1dc', '#cfd6dc', '#a9a8a4', '#e9e1f0', '#dbe8d9', '#f3efe7', '#7fae5a', '#8a6a4f', '#bdbab4'];
 
 export const ROOM_NAMES = ['Sala', 'Quarto', 'Suíte', 'Cozinha', 'Banheiro', 'Área de serviço', 'Escritório', 'Varanda', 'Corredor', 'Closet', 'Sala de jantar', 'Garagem', 'Lavabo', 'Quintal', 'Área externa'];
 export const OUTDOOR_NAMES = new Set(['Quintal', 'Área externa']);

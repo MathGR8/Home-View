@@ -57,7 +57,26 @@ const PLAN_CSS = `
 .meas text{font:600 12px system-ui,sans-serif;fill:#553c9a;text-anchor:middle;dominant-baseline:middle;paint-order:stroke;stroke:var(--bg-plan);stroke-width:4px}
 .meas .hit{stroke:transparent;stroke-width:14;vector-effect:non-scaling-stroke}
 .snapdot{fill:#e0338a}
+.item.ghost{opacity:.16;pointer-events:none}
+.ftex{pointer-events:none}
 `;
+
+// Texturas dos pisos dos cômodos na planta (em cm, por cima da cor)
+const FLOOR_PAT = (() => {
+  const k = 'stroke-width="0.9" fill="none"';
+  const pat = (id, w, h, body) => `<pattern id="ft-${id}" width="${w}" height="${h}" patternUnits="userSpaceOnUse">${body}</pattern>`;
+  return [
+    pat('wood', 120, 30, `<path d="M0 15H120M0 30H120M40 0V15M100 15V30" stroke="rgba(70,40,15,.28)" ${k}/><path d="M0 6H120M0 22H120" stroke="rgba(70,40,15,.08)" ${k}/>`),
+    pat('porcelain', 60, 60, `<path d="M0 0H60V60" stroke="rgba(0,0,0,.16)" ${k}/>`),
+    pat('tiles', 30, 30, `<path d="M0 0H30V30" stroke="rgba(0,0,0,.2)" ${k}/>`),
+    pat('concrete', 100, 100, `<path d="M0 0H100V100" stroke="rgba(0,0,0,.14)" stroke-dasharray="6 4" ${k}/>`),
+    pat('cement', 90, 90, `<ellipse cx="25" cy="30" rx="22" ry="12" fill="rgba(0,0,0,.05)"/><ellipse cx="68" cy="70" rx="18" ry="10" fill="rgba(255,255,255,.08)"/>`),
+    pat('deck', 112, 14, `<path d="M0 14H112M70 0V14" stroke="rgba(60,40,20,.3)" ${k}/>`),
+    pat('grass', 24, 24, `<path d="M4 10l2-5 2 5M15 21l2-5 2 5" stroke="rgba(20,70,20,.35)" ${k}/>`),
+    pat('soil', 16, 16, `<circle cx="4" cy="5" r="1.4" fill="rgba(40,25,10,.3)"/><circle cx="12" cy="12" r="1" fill="rgba(40,25,10,.25)"/>`),
+    pat('gravel', 12, 12, `<ellipse cx="3" cy="4" rx="2.4" ry="1.8" fill="rgba(0,0,0,.14)"/><ellipse cx="9" cy="9" rx="2" ry="1.6" fill="rgba(255,255,255,.18)"/>`),
+  ].join('');
+})();
 
 const LIGHT_VARS = '--bg-plan:#f7f6f3;--grid1:#ebe8e2;--grid2:#dcd7ce;--wall:#3b4048;--wall-edge:#22262b;--gapc:#f7f6f3;--ink:#1f2328;--ink2:#4a5058;--ink3:#7b828b;--halo:rgba(255,255,255,.85);--glass:#4a90c2;--accent:#2563eb;--accent-soft:rgba(37,99,235,.12)';
 const DARK_VARS = '--bg-plan:#1b1e23;--grid1:#24282e;--grid2:#30353c;--wall:#cfd4da;--wall-edge:#e6e9ed;--gapc:#1b1e23;--ink:#eef0f2;--ink2:#c3c8ce;--ink3:#8d949c;--halo:rgba(20,22,26,.8);--glass:#7cc0ee;--accent:#5b8def;--accent-soft:rgba(91,141,239,.18)';
@@ -77,6 +96,7 @@ export class Plan {
     this.coarse = matchMedia('(pointer: coarse)').matches;
     this.dark = false;
     this.lastTap = { id: null, t: 0 };
+    this.lvlView = 'all'; // tudo | 0 (só térreo) | 1 (só mezanino)
     this.analysis = { bad: new Set(), pairs: [], crossing: [] };
     this.raf = 0;
     this.bind();
@@ -134,6 +154,27 @@ export class Plan {
     }, { passive: false });
   }
 
+  // Com "só o térreo", o mezanino, as escadas e o que está em cima ficam transparentes (e o toque passa)
+  isGhost(it) {
+    const v = this.lvlView;
+    if (v === 'all') return false;
+    const upper = isStruct(it) || !!it.lvl;
+    return v === 0 ? upper : !upper && it.sym !== 'ground';
+  }
+  // Itens embaixo de um ponto, do que está por cima (desenhado por último) para o de baixo
+  itemsAt(x, y) {
+    const p = store.p, byZ = (a, b) => (a.z || 0) - (b.z || 0);
+    const lv = (l) => p.items.filter((i) => (i.lvl ? 1 : 0) === l && !isStruct(i));
+    const order = [...p.items.filter((i) => i.sym === 'ground').sort(byZ), ...p.items.filter((i) => i.layer === 'floor' && i.sym !== 'ground')];
+    for (const l of [0, 1]) {
+      if (l === 1) order.push(...p.items.filter(isMezz), ...p.items.filter((i) => i.sym === 'stair'));
+      const its = lv(l);
+      order.push(...its.filter((i) => i.layer === 'normal').sort(byZ), ...its.filter((i) => i.layer === 'wall'));
+    }
+    const pad = 6 / this.k;
+    return order.filter((it) => !this.isGhost(it) && pointInPoly(x, y, itemCorners({ ...it, w: it.w + pad, d: it.d + pad }))).reverse();
+  }
+
   hitOf(e) {
     const el = e.target.closest?.('[data-hit]');
     return el ? { ...el.dataset } : null;
@@ -157,7 +198,9 @@ export class Plan {
     switch (hit.hit) {
       case 'rot': case 'rs': { const it = store.selItems()[0]; if (!it || it.locked) { op.type = 'pan'; break; } op.type = hit.hit; op.item = it.id; op.start = { ...it }; op.h = hit.h; break; }
       case 'item': {
-        const id = hit.id;
+        let id = hit.id;
+        // o item selecionado está embaixo de outro (ex.: embaixo do mezanino)? continua pegando o selecionado
+        if (!add && !store.isSel(id) && store.sel?.kind === 'items') { const under = this.itemsAt(w[0], w[1]).find((i) => store.isSel(i.id)); if (under) id = under.id; }
         const it = store.item(id);
         if (!add && !store.isSel(id)) store.select({ kind: 'items', ids: [id] });
         op.type = 'item'; op.id = id;
@@ -280,17 +323,24 @@ export class Plan {
     const hit = op.hit;
     switch (op.type) {
       case 'item': {
+        const now = Date.now(), dbl = this.lastTap.id === op.id && now - this.lastTap.t < 350;
+        const stack = op.add ? [] : this.itemsAt(op.w0[0], op.w0[1]);
+        let id = op.id;
         if (op.add && op.wasSel && !op.justAdded) {
           const ids = store.sel.ids.filter((i) => i !== op.id);
           store.select(ids.length ? { kind: 'items', ids } : null);
-        } else if (!op.add) store.select({ kind: 'items', ids: [op.id] });
-        const now = Date.now();
-        if (this.lastTap.id === op.id && now - this.lastTap.t < 350) this.hooks.onOpenProps?.();
-        this.lastTap = { id: op.id, t: now };
+        } else if (!op.add) {
+          // tocar de novo no mesmo lugar pega o que está embaixo (mezanino → móvel embaixo dele, etc.)
+          if (op.wasSel && !dbl && stack.length > 1) { const i = stack.findIndex((q) => q.id === op.id); id = stack[(i + 1) % stack.length].id; }
+          store.select({ kind: 'items', ids: [id] });
+        }
+        if (dbl) this.hooks.onOpenProps?.();
+        this.lastTap = { id, t: now };
+        this.hooks.onStack?.(stack.length > 1 ? stack.map((q) => q.id) : [], id);
         break;
       }
-      case 'panTap': case 'box': if (!op.add) store.select(null); break;
-      case 'roomTap': case 'room': store.select({ kind: 'room', id: op.room }); break;
+      case 'panTap': case 'box': if (!op.add) store.select(null); this.hooks.onStack?.([]); break;
+      case 'roomTap': case 'room': store.select({ kind: 'room', id: op.room }); this.hooks.onStack?.([]); break;
       case 'tap':
         if (hit?.hit === 'dist') this.hooks.onEditDist?.(hit.dir, +hit.gap);
         if (hit?.hit === 'rdim') { store.select({ kind: 'room', id: hit.id }); this.hooks.onEditWall?.(hit.id, +hit.i); }
@@ -434,16 +484,16 @@ export class Plan {
   dragOpening(op, w) {
     const r = store.room(op.room), o = r.openings.find((x) => x.id === op.oid);
     if (o.full) return;
-    const E = edgesOf(r.points);
+    const E = edgesOf(r.points), ext = o.type === 'cut' ? r.wallT : 0;
     let best = null;
     for (const e of E) {
-      if (e.len < o.width) continue;
+      if (e.len + 2 * ext < o.width) continue;
       const pr = projectOnSeg(w[0], w[1], e.a, e.b);
       if (!best || pr.dist < best.pr.dist - 2) best = { e, pr };
     }
     if (!best) return;
     if (best.e.i !== o.edge) { o.edge = best.e.i; op.grab = o.width / 2; }
-    o.off = Math.round(clamp(best.pr.along - op.grab, 0, best.e.len - o.width));
+    o.off = Math.round(clamp(best.pr.along - op.grab, -ext, best.e.len + ext - o.width));
   }
 
   moveRoomBy(op, dx, dy) {
@@ -523,8 +573,10 @@ export class Plan {
     for (const o of r.openings) {
       const e = E[o.edge]; if (!e) continue;
       if (o.full) { o.off = 0; o.width = Math.round(e.len * 10) / 10; continue; }
-      o.width = Math.min(o.width, Math.max(20, Math.floor(e.len)));
-      o.off = clamp(o.off, 0, Math.max(0, e.len - o.width));
+      // corte pode pegar o canto (passa até uma espessura de parede do fim)
+      const ext = o.type === 'cut' ? r.wallT : 0;
+      o.width = Math.min(o.width, Math.max(o.type === 'cut' ? 4 : 20, Math.floor(e.len + 2 * ext)));
+      o.off = clamp(o.off, -ext, Math.max(-ext, e.len + ext - o.width));
     }
   }
 
@@ -607,7 +659,7 @@ export class Plan {
     this.analysis = analyze(p);
     const vb = { x1: -this.tx / k, y1: -this.ty / k, x2: (r.width - this.tx) / k, y2: (r.height - this.ty) / k };
     const out = [];
-    out.push(`<defs><style>${SYM_CSS}${PLAN_CSS}</style><pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="8" fill="rgba(229,62,62,.35)"/></pattern></defs>`);
+    out.push(`<defs><style>${SYM_CSS}${PLAN_CSS}</style>${FLOOR_PAT}<pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="3" height="8" fill="rgba(229,62,62,.35)"/></pattern></defs>`);
     out.push(`<rect x="0" y="0" width="100%" height="100%" fill="var(--bg-plan)"/>`);
     out.push(`<g transform="translate(${f1(this.tx)} ${f1(this.ty)}) scale(${k})">`);
     if (this.S.showGrid) out.push(this.gridSVG(vb, k));
@@ -639,7 +691,10 @@ export class Plan {
     // pisos externos (grama, concreto…) ficam por baixo dos cômodos
     for (const it of p.items.filter((i) => i.sym === 'ground').sort(byZ)) out.push(this.itemSVG(it, k, exporting));
     // pisos
-    for (const rm of p.rooms) out.push(`<polygon class="floor" data-hit="room" data-id="${rm.id}" points="${ptsStr(rm.points)}" fill="${esc(rm.floor)}"/>`);
+    for (const rm of p.rooms) {
+      out.push(`<polygon class="floor" data-hit="room" data-id="${rm.id}" points="${ptsStr(rm.points)}" fill="${esc(rm.floor)}"/>`);
+      if (rm.floorTex && rm.floorTex !== 'plain') out.push(`<polygon class="ftex" points="${ptsStr(rm.points)}" fill="url(#ft-${esc(rm.floorTex)})"/>`);
+    }
     // tapetes
     for (const it of p.items.filter((i) => i.layer === 'floor' && i.sym !== 'ground')) out.push(this.itemSVG(it, k, exporting));
     // paredes (área externa: só o contorno tracejado)
@@ -770,7 +825,7 @@ export class Plan {
   itemSVG(it, k, exporting) {
     const S = store.p.settings;
     const a = this.analysis;
-    const cls = ['item', it.layer === 'wall' ? 'wallitem' : '', isMezz(it) ? 'mezz' : '', it.sym === 'stair' ? 'stair' : '', it.lvl ? 'up' : '', it.layer === 'floor' ? 'floor' : '', it.status === 'comprar' ? 'buy' : '', it.status === 'sai' ? 'out' : '', !exporting && a.bad.has(it.id) ? 'bad' : ''].join(' ');
+    const cls = ['item', it.layer === 'wall' ? 'wallitem' : '', isMezz(it) ? 'mezz' : '', it.sym === 'stair' ? 'stair' : '', it.lvl ? 'up' : '', it.layer === 'floor' ? 'floor' : '', it.status === 'comprar' ? 'buy' : '', it.status === 'sai' ? 'out' : '', !exporting && a.bad.has(it.id) ? 'bad' : '', !exporting && this.isGhost(it) ? 'ghost' : ''].join(' ');
     let s = `<g class="${cls}" data-hit="item" data-id="${it.id}" transform="translate(${f1(it.x)} ${f1(it.y)}) rotate(${f1(it.rot || 0)})" style="--c:${esc(it.color)}">`;
     s += bodyShape(it) + symbolDetails(it);
     if (isMezz(it)) for (const r of mezzRails(store.p, it)) s += `<line class="rail" x1="${f1(r.a[0])}" y1="${f1(r.a[1])}" x2="${f1(r.b[0])}" y2="${f1(r.b[1])}"/>`;
@@ -897,7 +952,7 @@ export class Plan {
     const k = scalePxPerCm;
     const body = this.planBody(p, k, true);
     const title = `<text x="${f1(box.x1 + 10)}" y="${f1(box.y1 + 22 / k)}" style="font:600 ${f1(16 / k)}px system-ui,sans-serif;fill:#1f2328">${esc(p.name)}</text>`;
-    return { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(w * k)}" height="${Math.round(h * k)}" viewBox="${f1(box.x1)} ${f1(box.y1)} ${f1(w)} ${f1(h)}" style="${LIGHT_VARS}"><defs><style>${SYM_CSS}${PLAN_CSS}</style></defs><rect x="${f1(box.x1)}" y="${f1(box.y1)}" width="${f1(w)}" height="${f1(h)}" fill="#ffffff"/>${title}${body}</svg>`, w: Math.round(w * k), h: Math.round(h * k) };
+    return { svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(w * k)}" height="${Math.round(h * k)}" viewBox="${f1(box.x1)} ${f1(box.y1)} ${f1(w)} ${f1(h)}" style="${LIGHT_VARS}"><defs><style>${SYM_CSS}${PLAN_CSS}</style>${FLOOR_PAT}</defs><rect x="${f1(box.x1)}" y="${f1(box.y1)}" width="${f1(w)}" height="${f1(h)}" fill="#ffffff"/>${title}${body}</svg>`, w: Math.round(w * k), h: Math.round(h * k) };
   }
 }
 
