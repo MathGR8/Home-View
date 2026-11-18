@@ -61,11 +61,12 @@ export function mezzUnder(p, x, y) {
   return top;
 }
 
-// Altura do chão onde se pisa (caminhada no 3D): térreo, mezanino ou degrau, sem "subir pela parede"
+// Altura do chão onde se pisa (caminhada no 3D): térreo, mezanino ou degrau, sem "subir pela parede".
+// Folga de 6 cm nas beiradas: uma frestinha entre o topo da escada e o mezanino não derruba ninguém.
 export function floorAt(p, x, y, feet, climb = 50) {
   let best = 0;
   for (const it of p.items) {
-    if (!isStruct(it) || !inside(it, x, y)) continue;
+    if (!isStruct(it) || !inside(it, x, y, 6)) continue;
     let top;
     if (isMezz(it)) top = it.h;
     else if (isStair(it)) top = stairTopAt(it, toLocal(it, x, y)[1]);

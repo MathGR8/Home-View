@@ -339,3 +339,18 @@ dialog::backdrop { background: rgba(10, 12, 16, .45); }
 }
 .tb[data-badge]:not([data-badge=""]) { position: relative; }
 .tb[data-badge]:not([data-badge=""])::after { content: attr(data-badge); position: absolute; right: 2px; bottom: 2px; min-width: 13px; height: 13px; border-radius: 7px; background: var(--accent); color: #fff; font: 700 9px/13px system-ui, sans-serif; text-align: center; }
+
+.tb.on.pan { background: rgba(234, 88, 12, .14); color: #c2410c; }
+.joy-zone { position: absolute; right: 0; bottom: 0; z-index: 3; touch-action: none; user-select: none; -webkit-user-select: none; display: grid; place-items: center; border-radius: 16px 0 0 0; }
+.joy-zone[hidden] { display: none; }
+.joy-zone span { display: none; font: 600 11px system-ui, sans-serif; color: rgba(234, 88, 12, .95); text-transform: uppercase; letter-spacing: .05em; }
+.joy-zone.show { outline: 2px dashed rgba(234, 88, 12, .85); outline-offset: -6px; background: rgba(234, 88, 12, .07); }
+.joy-zone.show span { display: block; }
+.v3.joy-edit .joy-zone { pointer-events: none; }
+.joy.floating { transition: none; }
+.v3-cross { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; z-index: 4; pointer-events: none; }
+.v3-cross[hidden] { display: none; }
+.v3-cross::before, .v3-cross::after { content: ""; position: absolute; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .45); }
+.v3-cross::before { left: 8px; top: 0; width: 2px; height: 18px; }
+.v3-cross::after { top: 8px; left: 0; width: 18px; height: 2px; }
+.ib[hidden] { display: none; }

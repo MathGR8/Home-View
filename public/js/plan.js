@@ -97,6 +97,7 @@ export class Plan {
     this.dark = false;
     this.lastTap = { id: null, t: 0 };
     this.lvlView = 'all'; // tudo | 0 (só térreo) | 1 (só mezanino)
+    this.panLock = false; // modo "mover a planta": arrastar nunca move objetos, só a planta (tocar continua selecionando)
     this.analysis = { bad: new Set(), pairs: [], crossing: [] };
     this.raf = 0;
     this.bind();
@@ -195,6 +196,7 @@ export class Plan {
 
     if (this.tool === 'measure' && (!hit || !['meas', 'dist'].includes(hit.hit))) { op.type = 'measure'; return; }
     if (!hit) { op.type = add ? 'box' : 'panTap'; return; }
+    op.lockPan = this.panLock && !add;
     switch (hit.hit) {
       case 'rot': case 'rs': { const it = store.selItems()[0]; if (!it || it.locked) { op.type = 'pan'; break; } op.type = hit.hit; op.item = it.id; op.start = { ...it }; op.h = hit.h; break; }
       case 'item': {
@@ -202,15 +204,15 @@ export class Plan {
         // o item selecionado está embaixo de outro (ex.: embaixo do mezanino)? continua pegando o selecionado
         if (!add && !store.isSel(id) && store.sel?.kind === 'items') { const under = this.itemsAt(w[0], w[1]).find((i) => store.isSel(i.id)); if (under) id = under.id; }
         const it = store.item(id);
-        if (!add && !store.isSel(id)) store.select({ kind: 'items', ids: [id] });
+        if (!add && !store.isSel(id) && !op.lockPan) store.select({ kind: 'items', ids: [id] });
         op.type = 'item'; op.id = id;
         op.wasSel = store.isSel(id);
         if (add && !store.isSel(id)) { store.select({ kind: 'items', ids: [...(store.sel?.kind === 'items' ? store.sel.ids : []), id] }); op.justAdded = true; }
-        if (op.touch && !add) op.lp = setTimeout(() => this.longPress(id), 480);
+        if (op.touch && !add && !op.lockPan) op.lp = setTimeout(() => this.longPress(id), 480);
         if (it?.locked && store.selItems().every((i) => i.locked)) op.noMove = true;
         break;
       }
-      case 'open': { store.select({ kind: 'opening', room: hit.room, id: hit.id }); op.type = 'opening'; op.room = hit.room; op.oid = hit.id; break; }
+      case 'open': { if (!op.lockPan) store.select({ kind: 'opening', room: hit.room, id: hit.id }); op.type = 'opening'; op.room = hit.room; op.oid = hit.id; break; }
       case 'redge': case 'rvert': { op.type = hit.hit; op.room = hit.id; op.i = +hit.i; break; }
       case 'room': {
         const sameRoom = store.sel?.kind === 'room' && store.sel.id === hit.id;
@@ -266,6 +268,8 @@ export class Plan {
       if (Math.hypot(dsx, dsy) < (op.touch ? 8 : 4)) return;
       op.moved = true; clearTimeout(op.lp);
       if (op.type === 'panTap' || op.type === 'roomTap') op.type = 'pan';
+      // modo "mover a planta": arrastar em cima de qualquer coisa só move a planta
+      if (op.lockPan && ['item', 'rot', 'rs', 'opening', 'redge', 'rvert', 'room'].includes(op.type)) op.type = 'pan';
       if (op.type === 'tap') return;
       if (['item', 'rot', 'rs', 'opening', 'redge', 'rvert', 'room'].includes(op.type)) { store.begin(); op.began = true; this.prepare(op); }
       if (op.type === 'measure') { op.mid = uid('m'); }
@@ -341,6 +345,7 @@ export class Plan {
       }
       case 'panTap': case 'box': if (!op.add) store.select(null); this.hooks.onStack?.([]); break;
       case 'roomTap': case 'room': store.select({ kind: 'room', id: op.room }); this.hooks.onStack?.([]); break;
+      case 'opening': store.select({ kind: 'opening', room: op.room, id: op.oid }); break;
       case 'tap':
         if (hit?.hit === 'dist') this.hooks.onEditDist?.(hit.dir, +hit.gap);
         if (hit?.hit === 'rdim') { store.select({ kind: 'room', id: hit.id }); this.hooks.onEditWall?.(hit.id, +hit.i); }
