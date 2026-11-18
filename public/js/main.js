@@ -57,6 +57,28 @@ function toggleFocus() {
 }
 document.addEventListener('click', (e) => { const b = e.target.closest('[data-min]'); if (b) { e.stopPropagation(); toggleMin(b.dataset.min); } }, true);
 $('#bFocus').onclick = toggleFocus;
+
+// ---------- tela cheia (liga/desliga) ----------
+const fsEl = () => document.fullscreenElement || document.webkitFullscreenElement;
+const fsOK = !!(document.fullscreenEnabled || document.webkitFullscreenEnabled);
+function updateFs() {
+  const on = !!fsEl(), b = $('#bFull');
+  b.hidden = !fsOK;
+  b.innerHTML = icon(on ? 'fsOff' : 'fsOn');
+  b.classList.toggle('on', on);
+  b.title = on ? 'Sair da tela cheia' : 'Tela cheia (esconde a barra do navegador)';
+}
+app.toggleFullscreen = async () => {
+  if (!fsOK) { app.toast('Este navegador não deixa o site ficar em tela cheia. No iPhone: Compartilhar → Adicionar à Tela de Início'); return; }
+  try {
+    if (fsEl()) await (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    else { const d = document.documentElement; await (d.requestFullscreen ? d.requestFullscreen({ navigationUI: 'hide' }) : d.webkitRequestFullscreen()); }
+  } catch { app.toast('Não foi possível entrar em tela cheia'); }
+};
+$('#bFull').onclick = () => app.toggleFullscreen();
+document.addEventListener('fullscreenchange', updateFs);
+document.addEventListener('webkitfullscreenchange', updateFs);
+updateFs();
 applyUI();
 
 // ---------- tema ----------
@@ -133,7 +155,19 @@ $('#warnChip').onclick = () => {
 };
 
 // ---------- ferramentas ----------
-function setTool(t) {
+// Seta: tocar de novo alterna entre "mover objetos" e "mover a planta" (a planta não mexe em nada sem querer)
+const PAN = 'planta.moverPlanta';
+function setPanLock(on, silent = false) {
+  plan.panLock = on;
+  const b = $('#tools [data-tool="select"]');
+  b.innerHTML = icon(on ? 'hand' : 'pointer');
+  b.title = on ? 'Modo mover a planta: arrastar move só a planta (toque de novo para mover objetos)' : 'Modo mover objetos (toque de novo para só mover a planta)';
+  b.classList.toggle('pan', on);
+  try { localStorage.setItem(PAN, on ? '1' : ''); } catch { /* ignora */ }
+  if (!silent) app.toast(on ? 'Mover a planta: arraste para andar pela planta — tocar ainda seleciona' : 'Mover objetos: arraste os móveis, paredes e portas');
+}
+function setTool(t, toggle = false) {
+  if (toggle && t === 'select' && plan.tool === 'select') { setPanLock(!plan.panLock); return; }
   plan.tool = t;
   $$('#tools [data-tool]').forEach((b) => b.classList.toggle('on', b.dataset.tool === t));
   if (t === 'measure') app.toast('Régua: arraste na planta para medir');
@@ -152,6 +186,7 @@ function setLvl(v) {
   b.title = v === 'all' ? 'Andar: mostrando tudo (toque para ver só o térreo)' : v === 0 ? 'Andar: só o térreo (toque para ver só o mezanino)' : 'Andar: só o mezanino (toque para ver tudo)';
   plan.draw();
 }
+try { setPanLock(!!localStorage.getItem(PAN), true); } catch { setPanLock(false, true); }
 function syncToggles() {
   const hasMezz = !!store.p?.items.some(isMezz);
   $('#tools [data-toggle="lvl"]').hidden = !hasMezz;
@@ -162,7 +197,7 @@ function syncToggles() {
 }
 $('#tools').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b) return;
-  if (b.dataset.tool) setTool(b.dataset.tool);
+  if (b.dataset.tool) setTool(b.dataset.tool, true);
   const t = b.dataset.toggle;
   if (t === 'multi') { setMulti(!plan.multi); app.toast(plan.multi ? 'Seleção de vários ligada: toque nos itens ou arraste no vazio' : 'Seleção de vários desligada'); }
   if (t === 'lvl') { const nx = { all: 0, 0: 1, 1: 'all' }[plan.lvlView]; setLvl(nx); app.toast(LVL_NAMES[nx]); }
@@ -563,6 +598,7 @@ function openMenu() {
     <hr>
     <button data-m="selall">${icon('multi', 18)}Selecionar todos os móveis</button>
     <button data-m="measure">${icon('ruler', 18)}Adicionar medida</button>
+    <button data-m="full">${icon(fsEl() ? 'fsOff' : 'fsOn', 18)}${fsEl() ? 'Sair da tela cheia' : 'Tela cheia'}</button>
     <button data-m="theme">${icon('sun', 18)}Tema: ${themeName}</button>
     <button data-m="help">${icon('help', 18)}Como usar</button>`;
   menu.hidden = false;
@@ -592,6 +628,7 @@ menu.addEventListener('click', async (e) => {
       break;
     }
     case 'help': dlgHelp(); break;
+    case 'full': app.toggleFullscreen(); break;
   }
 });
 

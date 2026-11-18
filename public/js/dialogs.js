@@ -295,11 +295,16 @@ export function dlgHelp() {
       <dt><span class="kbd">W</span> <span class="kbd">A</span> <span class="kbd">S</span> <span class="kbd">D</span></dt><dd>andar (Shift: mais rápido) · <span class="kbd">←</span> <span class="kbd">→</span> girar · <span class="kbd">↑</span> <span class="kbd">↓</span> frente/trás · arrastar: olhar em volta</dd>
       <dt><span class="kbd">E</span> <span class="kbd">Q</span></dt><dd>subir / descer (modo Voar, atravessa tudo)</dd>
       <dt>Toque / clique</dt><dd>num objeto: seleciona e mostra opções (apagar, tirar pilar, cortar parede…). Toque de novo no mesmo lugar para pegar o que está atrás/embaixo</dd>
+      <dt>Mouse (computador)</dt><dd>no modo Andar, clique na cena: o mouse olha em volta como num jogo, <b>W A S D</b> anda, Shift corre, clique seleciona o que está na mira (+), <b>Esc</b> solta o mouse</dd>
+      <dt>Controle flutuante</dt><dd>no celular, o controle da direita aparece onde você tocar dentro da zona do canto de baixo à direita (ajuste a zona em “Controles”)</dd>
+      <dt>Escada</dt><dd>andando, você não cai de beirada alta (mezanino, lado da escada); para descer sem escada use “Voar”</dd>
       <dt>Controles</dt><dd>botão “Controles” no 3D: sensibilidade, visibilidade (transparência) e tamanho de cada controle, e <b>Mover na tela</b> para arrastar cada um para onde quiser</dd>
       <dt>Toque duplo</dt><dd>no chão ou no mezanino: vai até lá</dd>
     </dl>
     <h3>No computador</h3>
     <dl>
+      <dt>Seta (ferramentas)</dt><dd>toque de novo na seta para alternar entre <b>mover objetos</b> e <b>mover a planta</b> (mãozinha: arrastar só move a planta, tocar ainda seleciona)</dd>
+      <dt>Tela cheia</dt><dd>botão no topo (ou menu ⋮): esconde a barra do navegador; toque de novo para sair</dd>
       <dt>Arrastar no vazio</dt><dd>move a planta · roda do mouse: zoom</dd>
       <dt>Shift + clique</dt><dd>seleciona vários · Shift + arrastar no vazio: seleção por área</dd>
       <dt>Shift ao arrastar</dt><dd>desliga o ímã momentaneamente / giro livre</dd>

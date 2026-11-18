@@ -14,7 +14,8 @@ const typing = (e) => /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || '') 
 const curve = (v) => { const a = Math.abs(v); if (a < 0.12) return 0; const t = (a - 0.12) / 0.88; return Math.sign(v) * t * (0.35 + 0.65 * t); };
 // Ajustes dos controles na tela (ficam neste aparelho)
 const JOY_KEY = 'planta.controles';
-const JOY_DEF = { l: { sens: 1, vis: 1, size: 1, pos: null }, r: { sens: 1, vis: 1, size: 1, pos: null }, invY: false };
+// r.float: o controle da direita aparece onde você tocar dentro da zona (zw × zh, canto de baixo à direita)
+const JOY_DEF = { l: { sens: 1, vis: 1, size: 1, pos: null }, r: { sens: 1, vis: 1, size: 1, pos: null, float: true, zw: 0.55, zh: 0.45 }, invY: false };
 function loadJoyCfg() {
   let c = {};
   try { c = JSON.parse(localStorage.getItem(JOY_KEY) || '{}') || {}; } catch { /* ignora */ }
@@ -93,14 +94,36 @@ export class View3D {
     window.addEventListener('keyup', (e) => { this.keys.delete(e.key.toLowerCase()); if (e.key === 'Shift') this.keys.delete('shift'); });
     window.addEventListener('blur', () => this.keys.clear());
     const cv = this.renderer.domElement;
-    let look = null, tap = null, lastTap = null;
+    let look = null, tap = null;
+    // Mouse como num jogo em primeira pessoa (computador, modo Andar): clique prende o mouse,
+    // mexer o mouse olha em volta, WASD anda, clique seleciona o que está na mira, Esc solta.
+    this.locked = false;
+    const cross = document.createElement('div');
+    cross.className = 'v3-cross'; cross.hidden = true;
+    this.el.append(cross);
+    document.addEventListener('pointerlockchange', () => {
+      this.locked = document.pointerLockElement === cv;
+      cross.hidden = !this.locked;
+      this.el.classList.toggle('fps', this.locked);
+      if (this.locked) this.showHint('Mouse olha em volta · W A S D anda · Shift corre · Q/E desce/sobe · clique seleciona o que está na mira · Esc solta o mouse');
+      else if (this.mode === 'walk' && this.running) this.showHint('Clique na cena para controlar com o mouse (como num jogo)');
+    });
+    this.lockMouse = () => { if (!this.locked && cv.requestPointerLock && !matchMedia('(pointer: coarse)').matches) { try { const r = cv.requestPointerLock({ unadjustedMovement: true }); r?.catch?.(() => { try { cv.requestPointerLock(); } catch { /* ignora */ } }); } catch { /* ignora */ } } };
+    this.unlockMouse = () => { if (this.locked) document.exitPointerLock?.(); };
     cv.addEventListener('pointerdown', (e) => {
       tap = { x: e.clientX, y: e.clientY, t: performance.now() };
+      if (this.locked) return;
       if (this.mode !== 'walk' || look) return;
       look = { id: e.pointerId, x: e.clientX, y: e.clientY };
       try { cv.setPointerCapture(e.pointerId); } catch { /* ignora */ }
     });
     cv.addEventListener('pointermove', (e) => {
+      if (this.locked) {
+        const k = 0.0022 * clamp(this.joyCfg.r.sens, 0.1, 3);
+        this.yaw -= e.movementX * k;
+        this.pitch = clamp(this.pitch - e.movementY * k * (this.joyCfg.invY ? -1 : 1), -1.45, 1.45);
+        return;
+      }
       if (!look || e.pointerId !== look.id) return;
       const k = e.pointerType === 'mouse' ? 0.004 : 0.006;
       this.yaw += (e.clientX - look.x) * k;
@@ -111,9 +134,11 @@ export class View3D {
       if (look && e.pointerId === look.id) look = null;
       if (!tap) return;
       const moved = Math.hypot(e.clientX - tap.x, e.clientY - tap.y), now = performance.now();
-      if (moved < 8 && now - tap.t < 350) {
-        if (lastTap && now - lastTap.t < 380 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) { this.goToScreen(e.clientX, e.clientY); lastTap = null; }
-        else { lastTap = { x: e.clientX, y: e.clientY, t: now }; if (!this.joyEdit) { const c = this.pickCycle(e.clientX, e.clientY); this.onPick(c.hit, c.list, c.i); } }
+      if (this.locked) { const r = cv.getBoundingClientRect(); if (e.button === 0) this.tapAt(r.left + r.width / 2, r.top + r.height / 2, true); }
+      else if (moved < 8 && now - tap.t < 350) {
+        // no computador, no modo Andar, o primeiro clique prende o mouse (estilo jogo)
+        if (this.mode === 'walk' && e.pointerType === 'mouse' && this.mouseLook !== false) this.lockMouse();
+        else this.tapAt(e.clientX, e.clientY);
       }
       tap = null;
     };
@@ -130,6 +155,7 @@ export class View3D {
 
     // dois controles na tela, como num jogo: esquerda anda, direita gira a câmera
     const makeJoy = (side, label, title, set) => {
+      let release = () => {};
       const joy = document.createElement('div');
       joy.className = 'joy ' + side; joy.hidden = true;
       joy.innerHTML = `<i></i><span>${label}</span>`;
@@ -164,10 +190,36 @@ export class View3D {
         set(0, 0); knob.style.transform = ''; joy.classList.remove('on');
       };
       joy.addEventListener('pointerup', end); joy.addEventListener('pointercancel', end);
+      release = () => { set(0, 0); knob.style.transform = ''; joy.classList.remove('on'); };
+      joy._upd = upd; joy._release = () => release();
       return joy;
     };
     const joyL = makeJoy('l', 'andar', 'Arraste para andar (frente, trás e para os lados)', (x, y) => { this.joy = { x, y }; });
     const joyR = makeJoy('r', 'girar', 'Arraste para girar a câmera: direita = sentido horário, esquerda = anti-horário, cima/baixo = olhar', (x, y) => { this.turn = { x, y }; });
+    // zona do controle flutuante: tocou ali, o controle da direita aparece embaixo do dedo
+    const zone = document.createElement('div');
+    zone.className = 'joy-zone'; zone.hidden = true;
+    zone.innerHTML = '<span>zona do controle da direita</span>';
+    let zid = null, ztap = null;
+    zone.addEventListener('pointerdown', (e) => {
+      if (zid !== null || this.joyEdit) return;
+      zid = e.pointerId; zone.setPointerCapture(e.pointerId); e.preventDefault();
+      const r = this.el.getBoundingClientRect(), half = joyR.offsetWidth / 2;
+      const x = clamp(e.clientX - r.left, half, r.width - half), y = clamp(e.clientY - r.top, half, r.height - half);
+      Object.assign(joyR.style, { left: x + 'px', top: y + 'px', right: 'auto', bottom: 'auto', transform: 'translate(-50%, -50%)' });
+      joyR.classList.add('on', 'floating');
+      ztap = { x: e.clientX, y: e.clientY, t: performance.now() };
+      joyR._upd(e);
+    });
+    zone.addEventListener('pointermove', (e) => { if (e.pointerId === zid) { joyR._upd(e); if (ztap && Math.hypot(e.clientX - ztap.x, e.clientY - ztap.y) > 8) ztap = null; } });
+    const zend = (e) => {
+      if (e.pointerId !== zid) return; zid = null;
+      joyR._release(); joyR.classList.remove('floating'); this.applyJoyCfg();
+      // toque rápido sem arrastar: vale como toque na cena (selecionar / ir até lá)
+      if (e.type === 'pointerup' && ztap && performance.now() - ztap.t < 350) this.tapAt(e.clientX, e.clientY);
+      ztap = null;
+    };
+    zone.addEventListener('pointerup', zend); zone.addEventListener('pointercancel', zend);
     const vb = document.createElement('div');
     vb.className = 'vbtns'; vb.hidden = true;
     vb.innerHTML = '<button data-v="1" aria-label="Subir" title="Subir (E)">▲</button><button data-v="-1" aria-label="Descer" title="Descer (Q)">▼</button>';
@@ -177,10 +229,20 @@ export class View3D {
     hint.className = 'v3-hint'; hint.hidden = true;
     const cfg = document.createElement('div');
     cfg.className = 'joy-cfg'; cfg.hidden = true;
-    this.el.append(joyL, joyR, vb, hint, cfg);
-    this.ui = { joy: joyL, joyR, vb, hint, cfg };
+    this.el.append(zone, joyL, joyR, vb, hint, cfg);
+    this.ui = { joy: joyL, joyR, vb, hint, cfg, zone };
     this.bindJoyCfg();
     this.applyJoyCfg();
+  }
+
+  // Toque/clique na cena: duplo vai até o lugar, simples seleciona (toques seguidos pegam o que está embaixo)
+  tapAt(x, y, noGo = false) {
+    const now = performance.now(), L = this.lastTap;
+    if (!noGo && L && now - L.t < 380 && Math.hypot(x - L.x, y - L.y) < 30) { this.goToScreen(x, y); this.lastTap = null; return; }
+    this.lastTap = { x, y, t: now };
+    if (this.joyEdit) return;
+    const c = this.pickCycle(x, y);
+    this.onPick(c.hit, c.list, c.i);
   }
 
   // ---------- ajustes dos controles: sensibilidade, transparência, tamanho e posição ----------
@@ -190,19 +252,26 @@ export class View3D {
       const c = this.joyCfg[side];
       el.style.setProperty('--js', clamp(c.size, 0.5, 2));
       el.style.opacity = clamp(c.vis, 0.05, 1);
+      if (el.classList.contains('floating')) continue;
       if (c.pos) Object.assign(el.style, { left: pct(c.pos.x) + '%', top: pct(c.pos.y * 10) / 10 + '%', right: 'auto', bottom: 'auto', transform: 'translate(-50%, -50%)' });
       else Object.assign(el.style, { left: '', top: '', right: '', bottom: '', transform: '' });
     }
+    const r = this.joyCfg.r, z = this.ui.zone;
+    z.style.width = pct(clamp(r.zw ?? 0.55, 0.15, 1)) + '%';
+    z.style.height = pct(clamp(r.zh ?? 0.45, 0.1, 1)) + '%';
+    this.showJoys?.();
   }
   joyCfgHTML() {
     const c = this.joyCfg;
     const rng = (side, k, min, max, label) => `<label class="jc-r"><span>${label} <output>${pct(c[side][k])}%</output></span><input type="range" min="${min}" max="${max}" step="5" value="${pct(c[side][k])}" data-j="${side}.${k}"></label>`;
-    const col = (side, name) => `<fieldset><legend>${name}</legend>${rng(side, 'sens', 10, 200, 'Sensibilidade')}${rng(side, 'vis', 5, 100, 'Visibilidade')}${rng(side, 'size', 60, 160, 'Tamanho')}</fieldset>`;
+    const fl = c.r.float !== false;
+    const floatHTML = `<label class="jc-ck"><input type="checkbox" data-j="r.float" ${fl ? 'checked' : ''}> Flutuante: aparece onde eu tocar</label>${fl ? rng('r', 'zw', 15, 100, 'Zona: largura') + rng('r', 'zh', 10, 100, 'Zona: altura') : ''}`;
+    const col = (side, name) => `<fieldset><legend>${name}</legend>${rng(side, 'sens', 10, 200, 'Sensibilidade')}${rng(side, 'vis', 5, 100, 'Visibilidade')}${rng(side, 'size', 60, 160, 'Tamanho')}${side === 'r' ? floatHTML : ''}</fieldset>`;
     return `<div class="jc-h"><b>Controles na tela</b><button class="jc-x" data-jc="close" aria-label="Fechar">✕</button></div>
       <div class="jc-cols">${col('l', 'Andar (esquerda)')}${col('r', 'Girar (direita)')}</div>
       <label class="jc-ck"><input type="checkbox" data-j="invY" ${c.invY ? 'checked' : ''}> Inverter olhar para cima/baixo</label>
       <div class="jc-b"><button class="btn sm ${this.joyEdit ? 'pri' : ''}" data-jc="move">${this.joyEdit ? 'Pronto (parar de mover)' : 'Mover na tela'}</button><button class="btn sm" data-jc="reset">Restaurar padrão</button></div>
-      <p class="jc-t">${this.joyEdit ? 'Arraste cada controle para onde quiser.' : 'Menos sensibilidade = anda e gira mais devagar. Visibilidade baixa deixa o controle quase transparente.'}</p>`;
+      <p class="jc-t">${this.joyEdit ? 'Arraste cada controle para onde quiser (é o lugar onde ele fica parado).' : 'Menos sensibilidade = anda e gira mais devagar. Visibilidade baixa deixa o controle quase transparente.'}${fl ? ' A área tracejada no canto de baixo à direita é a zona do controle flutuante: tocou ali, ele aparece embaixo do dedo.' : ''}</p>`;
   }
   toggleJoyCfg(on = this.ui.cfg.hidden) {
     const p = this.ui.cfg;
@@ -217,6 +286,7 @@ export class View3D {
     p.addEventListener('input', (e) => {
       const k = e.target.dataset.j; if (!k) return;
       if (k === 'invY') { this.joyCfg.invY = e.target.checked; this.saveJoyCfg(); return; }
+      if (k === 'r.float') { this.joyCfg.r.float = e.target.checked; this.saveJoyCfg(); this.applyJoyCfg(); p.innerHTML = this.joyCfgHTML(); return; }
       const [side, f] = k.split('.');
       this.joyCfg[side][f] = +e.target.value / 100;
       const o = e.target.parentElement.querySelector('output'); if (o) o.textContent = e.target.value + '%';
@@ -237,6 +307,8 @@ export class View3D {
     const touch = matchMedia('(pointer: coarse)').matches;
     const on = this.mode === 'walk' || touch || !this.ui.cfg.hidden;
     this.ui.joy.hidden = !on; this.ui.joyR.hidden = !on;
+    this.ui.zone.hidden = !on || this.joyCfg.r.float === false;
+    this.ui.zone.classList.toggle('show', !this.ui.cfg.hidden);
     this.ui.vb.hidden = !(this.mode === 'walk' && this.fly);
   }
 
@@ -244,6 +316,7 @@ export class View3D {
 
   setFly(on) {
     this.fly = on;
+    if (!on && this.mode === 'walk') this.feetVis = Math.max(0, this.camera.position.y / M - this.eye);
     if (!on && this.mode === 'walk') this.feet = floorAt(this.p, this.camera.position.x / M, this.camera.position.z / M, Math.max(0, this.camera.position.y / M - this.eye) + 30);
     this.showJoys();
     this.onFly(on);
@@ -350,7 +423,7 @@ export class View3D {
       const v = a.from.map((f, i) => f + (a.to[i] - f) * e);
       c.set(v[0], v[1], v[2]);
       if (v.length > 3) this.controls.target.set(v[3], v[4], v[5]);
-      if (a.t >= 1) { if (a.feet !== undefined) this.feet = a.feet; this.anim = null; }
+      if (a.t >= 1) { if (a.feet !== undefined) this.feet = this.feetVis = a.feet; this.anim = null; }
       return;
     }
     const has = (...ks) => ks.some((k) => K.has(k));
@@ -368,12 +441,28 @@ export class View3D {
       this.pitch = clamp(this.pitch + ty * 1.3 * dt, -1.45, 1.45);
       const sp = (fast ? 3.4 : 1.5) * dt;
       const [fx, fz] = this.fwd();
-      c.x += (fx * f + -fz * r) * sp; c.z += (fz * f + fx * r) * sp;
-      if (this.fly) c.y = Math.max(0.2, c.y + u * sp);
+      const mx = (fx * f + -fz * r) * sp, mz = (fz * f + fx * r) * sp;
+      if (this.fly) { c.x += mx; c.z += mz; c.y = Math.max(0.2, c.y + u * sp); }
       else {
-        const tgt = floorAt(this.p, c.x / M, c.z / M, this.feet);
-        this.feet += (tgt - this.feet) * Math.min(1, dt * (tgt > this.feet ? 14 : 9));
-        c.y = (this.feet + this.eye) * M;
+        // anda em passinhos de no máximo 4 cm: cada passinho sobe no máximo um degrau,
+        // então correr numa escada íngreme não "perde" o degrau e não derruba para o térreo.
+        // this.feet = chão onde se pisa (lógico); this.feetVis = altura suavizada da câmera.
+        const n = Math.max(1, Math.ceil(Math.hypot(mx, mz) / 0.04));
+        // e não cai de beirada alta (mezanino, lateral da escada): desliza junto da beirada, como num jogo
+        const FALL = 50;
+        const at = (x, z) => floorAt(this.p, x / M, z / M, this.feet);
+        for (let i = 0; i < n; i++) {
+          const sx = mx / n, sz = mz / n;
+          let nf = at(c.x + sx, c.z + sz);
+          if (nf >= this.feet - FALL) { c.x += sx; c.z += sz; }
+          else if ((nf = at(c.x + sx, c.z)) >= this.feet - FALL && Math.abs(sx) > 1e-5) c.x += sx;
+          else if ((nf = at(c.x, c.z + sz)) >= this.feet - FALL && Math.abs(sz) > 1e-5) c.z += sz;
+          else nf = at(c.x, c.z);
+          this.feet = nf;
+        }
+        const fv = this.feetVis ?? this.feet;
+        this.feetVis = fv + (this.feet - fv) * Math.min(1, dt * (this.feet > fv ? 16 : 10));
+        c.y = (this.feetVis + this.eye) * M;
       }
       this.camera.rotation.set(this.pitch, this.yaw, 0);
       return;
@@ -429,7 +518,7 @@ export class View3D {
     };
     loop();
   }
-  stop() { this.running = false; this.keys.clear(); }
+  stop() { this.running = false; this.keys.clear(); this.unlockMouse?.(); }
 
   clear() {
     this.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
@@ -524,6 +613,7 @@ export class View3D {
     const dist = Math.max(4, size * 1.25);
     this.anim = null;
     const walk = kind === 'walk';
+    if (!walk) this.unlockMouse?.();
     this.onMode?.(kind);
     this.mode = walk ? 'walk' : 'orbit';
     this.controls.enabled = !walk;
@@ -535,11 +625,12 @@ export class View3D {
       this.eye = at?.eye ?? EYE;
       this.yaw = at ? Math.PI - rad(at.rot || 0) : 0; this.pitch = at ? -0.12 : -0.08;
       this.feet = this.fly ? 0 : at?.feet ?? floorAt(this.p || { items: [] }, x / M, z / M, 0);
+      this.feetVis = this.feet;
       this.camera.position.set(x, (this.feet + this.eye) * M, z);
       this.camera.rotation.set(this.pitch, this.yaw, 0);
       const touch = matchMedia('(pointer: coarse)').matches;
       if (at?.name) this.showHint(`Vendo pelos olhos de ${at.name}: olhos a ${String(Math.round(this.eye) / 100).replace('.', ',')} m do chão`);
-      else this.showHint(touch ? 'Controle da esquerda: andar · controle da direita: girar a câmera · toque num objeto para ver opções · toque duas vezes no chão para ir até lá' : 'Arraste para olhar · W A S D andar · ← → girar (Shift = correr) · Q/E descer/subir · clique num objeto para ver opções');
+      else this.showHint(touch ? 'Controle da esquerda: andar · controle da direita: girar a câmera · toque num objeto para ver opções · toque duas vezes no chão para ir até lá' : 'Clique na cena para controlar com o mouse, como num jogo: mouse olha, W A S D anda, Shift corre, Q/E desce/sobe, Esc solta o mouse');
       return;
     }
     this.eye = EYE;
