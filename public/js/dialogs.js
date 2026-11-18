@@ -5,7 +5,7 @@ import { local, cloud, syncAll } from './storage.js';
 import { thumbSVG } from './plan.js';
 import { icon } from './icons.js';
 import { esc, parseNum, uid, fmtMoney } from './geometry.js';
-import { ROOM_NAMES, FLOOR_COLORS, SYMBOLS, COLORS, STATUS } from './catalog.js';
+import { ROOM_NAMES, FLOOR_COLORS, SYMBOLS, COLORS, STATUS, OUTDOOR_NAMES } from './catalog.js';
 import { previewSVG } from './symbols.js';
 import * as A from './actions.js';
 
@@ -68,17 +68,24 @@ export function dlgRoom() {
     </div>
     <p class="tiny">Pode digitar em metros (3,5) ou em centímetros (350). Depois dá para ajustar cada parede e arrastar os cantos.</p>
     <h3>Piso</h3><div class="swatches" id="rFloor">${FLOOR_COLORS.map((c, i) => `<button type="button" class="swatch ${i === 0 ? 'on' : ''}" style="--c:${c}" data-c="${c}"></button>`).join('')}</div>
+    <label class="check" style="margin-top:12px"><span>Sem paredes (área externa, quintal)</span><input type="checkbox" id="rOut"></label>
     <p class="err-msg" id="rErr"></p>`;
   const d = openDialog('Novo cômodo', body, `<button class="btn" value="cancel">Cancelar</button><button class="btn pri" type="button" id="rOk">Adicionar</button>`);
   let shape = 'rect', floor = FLOOR_COLORS[0];
-  d.querySelectorAll('[data-name]').forEach((b) => b.onclick = () => { $('#rName').value = b.dataset.name; });
+  const pickFloor = (c) => { floor = c; d.querySelectorAll('#rFloor .swatch').forEach((x) => x.classList.toggle('on', x.dataset.c === c)); };
+  d.querySelectorAll('[data-name]').forEach((b) => b.onclick = () => {
+    $('#rName').value = b.dataset.name;
+    const out = OUTDOOR_NAMES.has(b.dataset.name);
+    $('#rOut').checked = out;
+    if (out) pickFloor('#8fbf6a');
+  });
   d.querySelectorAll('#rShape button').forEach((b) => b.onclick = () => { shape = b.dataset.s; d.querySelectorAll('#rShape button').forEach((x) => x.classList.toggle('on', x === b)); $('#rL').hidden = shape !== 'L'; });
   d.querySelectorAll('#rFloor .swatch').forEach((b) => b.onclick = () => { floor = b.dataset.c; d.querySelectorAll('#rFloor .swatch').forEach((x) => x.classList.toggle('on', x === b)); });
   $('#rOk').onclick = () => {
     const w = parseLen($('#rW').value, true), h = parseLen($('#rH').value, true);
     const height = parseLen($('#rHt').value, true), wallT = parseLen($('#rT').value, false);
     if (!(w >= 30 && h >= 30)) { $('#rErr').textContent = 'Confira a largura e a profundidade.'; return; }
-    const o = { name: $('#rName').value.trim() || 'Cômodo', shape, w, h, height: height > 0 ? height : 260, wallT: wallT > 0 ? wallT : t, floor };
+    const o = { name: $('#rName').value.trim() || 'Cômodo', shape, w, h, height: height > 0 ? height : 260, wallT: wallT > 0 ? wallT : t, floor, noWalls: $('#rOut').checked };
     if (shape === 'L') {
       o.cw = parseLen($('#rCW').value, true); o.ch = parseLen($('#rCH').value, true); o.corner = $('#rCorner').value;
       if (!(o.cw > 0 && o.cw < w && o.ch > 0 && o.ch < h)) { $('#rErr').textContent = 'O recorte do L precisa ser menor que o cômodo.'; return; }
@@ -268,14 +275,24 @@ export function dlgHelp() {
       <li><b>Móveis → Estrutura → Mezanino metálico</b>: ajuste largura, profundidade, altura do piso, guarda-corpo e cores.</li>
       <li>Adicione uma <b>Escada</b>, gire no ângulo que precisar (bolinha de giro ou digitando) e escolha a inclinação. <b>Encaixar no mezanino</b> leva o topo dela até a beirada e iguala a altura; o guarda-corpo abre sozinho ali.</li>
       <li>Para pôr móveis em cima: selecione o mezanino e escolha o móvel, ou no móvel use <b>Andar → Em cima do mezanino</b>.</li>
+      <li>Mezanino preso nas paredes: <b>Pilares → Nenhum</b>, ou no 3D toque num pilar e escolha <b>Tirar este pilar</b>.</li>
+    </ol>
+    <h3>Paredes, área externa e pessoas</h3>
+    <ol class="muted" style="padding-left:18px;margin:0;display:grid;gap:6px">
+      <li><b>Cortar parede</b>: no cômodo, botão <b>Corte</b> na parede (largura e mureta ajustáveis) ou <b>Tirar parede</b> para remover a parede inteira. No 3D, toque na parede e escolha <b>Cortar aqui</b>.</li>
+      <li><b>Banheiro embaixo da escada</b>: corte a parede onde for preciso e feche com <b>Área externa → Parede divisória</b> e <b>Parede inclinada</b> (altura diferente no início e no fim acompanha a escada).</li>
+      <li><b>Área externa</b>: cômodo “Quintal” ou “Área externa” (sem paredes), pisos de grama/concreto/deck, muros, grades (vertical, diagonal, losango) e portões.</li>
+      <li><b>Pessoas</b>: coloque um homem e uma mulher com as alturas reais para comparar com móveis e bancadas. <b>Ver pelos olhos no 3D</b> mostra o ambiente na altura dos olhos dela/dele.</li>
+      <li><b>Luz</b>: lâmpadas, pendentes e iluminação industrial acendem no 3D no modo <b>Noite</b> (botão da lua).</li>
     </ol>
     <h3>Andar no 3D</h3>
     <dl>
       <dt>Andar</dt><dd>botão “Andar” no 3D: você fica na altura dos olhos, sobe a escada e anda no mezanino</dd>
-      <dt><span class="kbd">W</span> <span class="kbd">A</span> <span class="kbd">S</span> <span class="kbd">D</span> / setas</dt><dd>andar (Shift: mais rápido) · arrastar: olhar em volta</dd>
+      <dt>Dois controles</dt><dd>o da <b>esquerda</b> anda (frente, trás, para os lados); o da <b>direita</b> gira a câmera: para a direita gira no sentido horário, para a esquerda no anti-horário, para cima/baixo olha para cima/baixo</dd>
+      <dt><span class="kbd">W</span> <span class="kbd">A</span> <span class="kbd">S</span> <span class="kbd">D</span></dt><dd>andar (Shift: mais rápido) · <span class="kbd">←</span> <span class="kbd">→</span> girar · <span class="kbd">↑</span> <span class="kbd">↓</span> frente/trás · arrastar: olhar em volta</dd>
       <dt><span class="kbd">E</span> <span class="kbd">Q</span></dt><dd>subir / descer (modo Voar, atravessa tudo)</dd>
-      <dt>Clique duplo</dt><dd>no chão ou no mezanino: vai até lá</dd>
-      <dt>Celular</dt><dd>controle redondo para andar, arrastar a tela para olhar, ▲▼ no modo Voar</dd>
+      <dt>Toque / clique</dt><dd>num objeto: seleciona e mostra opções (apagar, tirar pilar, cortar parede…)</dd>
+      <dt>Toque duplo</dt><dd>no chão ou no mezanino: vai até lá</dd>
     </dl>
     <h3>No computador</h3>
     <dl>
@@ -308,6 +325,7 @@ export function exportCSV() {
   const p = store.p;
   const rows = [['Cômodo', 'Item', 'Largura (cm)', 'Profundidade (cm)', 'Altura (cm)', 'Status', 'Preço', 'Anotações']];
   for (const it of p.items) {
+    if (it.sym === 'person') continue;
     const r = roomAt(p, it.x, it.y);
     rows.push([r ? r.name : 'Fora dos cômodos', it.name, Math.round(it.w), Math.round(it.d), Math.round(it.h), STATUS[it.status]?.n || '', String(it.price || 0).replace('.', ','), it.note || '']);
   }

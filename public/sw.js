@@ -1,5 +1,5 @@
 // Funciona sem internet: guarda o app no aparelho. Sempre tenta a versão nova primeiro.
-const CACHE = 'planta-v2';
+const CACHE = 'planta-v3';
 self.addEventListener('install', (e) => { self.skipWaiting(); });
 self.addEventListener('activate', (e) => {
   e.waitUntil((async () => {

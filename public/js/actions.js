@@ -1,5 +1,5 @@
 // Ações de edição usadas pelos painéis, atalhos de teclado e menus.
-import { store, makeItem, makeRoom, makeOpening, rectPts, lPts, roomAt } from './state.js';
+import { store, makeItem, makeRoom, makeOpening, makeCut, rectPts, lPts, roomAt } from './state.js';
 import { itemBox, unionBox, bbox, edgesOf, uid, normAng, pointInPoly, clamp, offsetPoly } from './geometry.js';
 import { isMezz, nearestMezzEdge, mezzUnder } from './struct.js';
 
@@ -37,7 +37,7 @@ export function addRoom(o) {
     x = box.x2 + t; y = box.y1;
   }
   const pts = o.shape === 'L' ? lPts(x, y, o.w, o.h, o.cw, o.ch, o.corner) : rectPts(x, y, o.w, o.h);
-  const r = makeRoom({ name: o.name, points: pts, height: o.height, wallT: t, floor: o.floor });
+  const r = makeRoom({ name: o.name, points: pts, height: o.height, wallT: t, floor: o.floor, noWalls: !!o.noWalls });
   store.change((pp) => pp.rooms.push(r));
   store.select({ kind: 'room', id: r.id });
   plan.fit();
@@ -260,10 +260,13 @@ export function splitWall(roomId, i) {
     const a = r.points[i], b = r.points[(i + 1) % n];
     r.points.splice(i + 1, 0, [Math.round((a[0] + b[0]) / 2), Math.round((a[1] + b[1]) / 2)]);
     const half = Math.hypot(b[0] - a[0], b[1] - a[1]) / 2;
+    const extra = [];
     for (const o of r.openings) {
       if (o.edge > i) o.edge++;
+      else if (o.edge === i && o.full) extra.push({ ...o, id: uid('o'), edge: i + 1 }); // parede removida continua removida nas duas partes
       else if (o.edge === i && o.off >= half) { o.edge = i + 1; o.off -= half; }
     }
+    r.openings.push(...extra);
     plan.clampOpenings(r);
   });
 }
@@ -290,6 +293,44 @@ export function addOpening(roomId, edge, type) {
   const o = makeOpening(type, e.len, edge);
   store.change(() => r.openings.push(o));
   store.select({ kind: 'opening', room: roomId, id: o.id });
+}
+
+// ---------- cortes de parede ----------
+// Corta um trecho da parede (sem parede, de cima a baixo) centralizado num ponto
+export function cutWall(roomId, edge, along, width = 100) {
+  const r = store.room(roomId); if (!r) return null;
+  const e = edgesOf(r.points)[edge]; if (!e) return null;
+  const o = makeCut(e.len, edge, Math.round(along - width / 2), width);
+  store.change(() => r.openings.push(o));
+  store.select({ kind: 'opening', room: roomId, id: o.id });
+  return o;
+}
+
+// Tira (ou devolve) a parede inteira
+export function toggleWall(roomId, edge) {
+  const r = store.room(roomId); if (!r) return false;
+  const e = edgesOf(r.points)[edge]; if (!e) return false;
+  const has = r.openings.some((o) => o.full && o.edge === edge);
+  store.change(() => {
+    if (has) r.openings = r.openings.filter((o) => !(o.full && o.edge === edge));
+    else r.openings.push(makeCut(e.len, edge, 0, e.len, true));
+  });
+  return !has;
+}
+
+// Mezanino: remove um pilar (ou devolve todos)
+export function removeCol(id, key) {
+  const m = store.item(id); if (!m) return;
+  store.change(() => { m.noCols = [...new Set([...(m.noCols || []), key])]; });
+}
+export function restoreCols(id) {
+  const m = store.item(id); if (!m) return;
+  store.change(() => { m.noCols = []; if (m.cols === 'none') m.cols = 'auto'; });
+}
+// Guarda-corpo / corrimão: tira um lado
+export function removeRail(id, side) {
+  const m = store.item(id); if (!m) return;
+  store.change(() => { m.rails = (m.rails ?? (m.sym === 'stair' ? 'we' : 'nsew')).replace(side, ''); });
 }
 
 export function addMeasure() {

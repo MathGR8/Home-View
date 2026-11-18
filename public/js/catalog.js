@@ -1,6 +1,8 @@
 // Catálogo de móveis com medidas comuns no Brasil (largura × profundidade × altura, em cm).
 // sym = desenho na planta e modelo no 3D. layer: normal | floor (tapete) | wall (na parede) | struct (mezanino, escada).
 // Estruturas: h = altura do piso do mezanino / altura que a escada sobe.
+// Área externa: muro (h2 = altura no fim, para muro/parede inclinada), grade (pattern), portão (style), piso (tex).
+// Iluminação (layer wall): elev = altura do chão até a lâmpada; h = comprimento do pendente.
 
 export const CATALOG = [
   { cat: 'Sala', items: [
@@ -82,11 +84,52 @@ export const CATALOG = [
     { k: 'escada', n: 'Escada reta', w: 90, d: 400, h: 280, sym: 'stair', layer: 'struct', color: '#3c4650', deck: '#8b939c', steps: 0, railH: 90, rails: 'we' },
     { k: 'escada60', n: 'Escada íngreme (60°)', w: 70, d: 162, h: 280, sym: 'stair', layer: 'struct', color: '#3c4650', deck: '#8b939c', steps: 12, railH: 90, rails: 'we' },
   ]},
+  { cat: 'Área externa', items: [
+    { k: 'muro', n: 'Muro', w: 300, d: 15, h: 200, sym: 'wallseg', color: '#d9d4ca' },
+    { k: 'mureta', n: 'Mureta', w: 200, d: 15, h: 100, sym: 'wallseg', color: '#d9d4ca' },
+    { k: 'paredeInc', n: 'Parede inclinada (embaixo da escada)', w: 250, d: 10, h: 260, h2: 40, sym: 'wallseg', color: '#f4f2ee' },
+    { k: 'paredeDiv', n: 'Parede divisória', w: 200, d: 10, h: 260, sym: 'wallseg', color: '#f4f2ee' },
+    { k: 'gradeV', n: 'Grade vertical', w: 200, d: 5, h: 120, sym: 'fence', pattern: 'vertical', color: '#2b2f33' },
+    { k: 'gradeD', n: 'Grade diagonal', w: 200, d: 5, h: 120, sym: 'fence', pattern: 'diagonal', color: '#2b2f33' },
+    { k: 'gradeX', n: 'Grade em losango (diagonal cruzada)', w: 200, d: 5, h: 120, sym: 'fence', pattern: 'cross', color: '#2b2f33' },
+    { k: 'gradeM', n: 'Grade vertical + diagonal', w: 200, d: 5, h: 120, sym: 'fence', pattern: 'mixed', color: '#2b2f33' },
+    { k: 'portao', n: 'Portão de garagem (basculante)', w: 300, d: 8, h: 230, sym: 'gate', style: 'panel', color: '#5d6670' },
+    { k: 'portaoG', n: 'Portão de garagem (grade)', w: 300, d: 6, h: 220, sym: 'gate', style: 'bars', color: '#2b2f33' },
+    { k: 'portaoR', n: 'Portão de garagem (ripado)', w: 300, d: 8, h: 230, sym: 'gate', style: 'slats', color: '#7a5c43' },
+    { k: 'portaoS', n: 'Portão social (pedestre)', w: 100, d: 6, h: 210, sym: 'gate', style: 'bars', color: '#2b2f33' },
+    { k: 'grama', n: 'Grama', w: 400, d: 300, h: 1, sym: 'ground', tex: 'grass', color: '#7fae5a', layer: 'floor' },
+    { k: 'concreto', n: 'Piso de concreto', w: 300, d: 300, h: 1, sym: 'ground', tex: 'concrete', color: '#bdbab4', layer: 'floor' },
+    { k: 'ceramico', n: 'Piso cerâmico', w: 300, d: 300, h: 1, sym: 'ground', tex: 'tiles', color: '#d9d4ca', layer: 'floor' },
+    { k: 'deckM', n: 'Deck de madeira', w: 300, d: 200, h: 1, sym: 'ground', tex: 'deck', color: '#a8784f', layer: 'floor' },
+    { k: 'pedra', n: 'Pedrisco / cascalho', w: 200, d: 200, h: 1, sym: 'ground', tex: 'gravel', color: '#b9b2a6', layer: 'floor' },
+    { k: 'terra', n: 'Terra / canteiro', w: 200, d: 100, h: 1, sym: 'ground', tex: 'soil', color: '#8a6a4f', layer: 'floor' },
+  ]},
+  { cat: 'Elétrica e luz', items: [
+    { k: 'lampada', n: 'Lâmpada (teto)', w: 12, d: 12, h: 18, sym: 'bulb', shape: 'round', color: '#fff3c4', layer: 'wall', elev: 240 },
+    { k: 'pendente', n: 'Luminária pendente', w: 35, d: 35, h: 60, sym: 'pendant', shape: 'round', color: '#2b2f33', layer: 'wall', elev: 190 },
+    { k: 'industrial', n: 'Iluminação industrial (4 lâmpadas)', w: 200, d: 20, h: 50, sym: 'indlight', bulbs: 4, color: '#2b2f33', layer: 'wall', elev: 200 },
+    { k: 'industrial6', n: 'Iluminação industrial (6 lâmpadas)', w: 300, d: 20, h: 50, sym: 'indlight', bulbs: 6, color: '#2b2f33', layer: 'wall', elev: 200 },
+    { k: 'tomada', n: 'Tomada (baixa)', w: 8, d: 2, h: 12, sym: 'socket', mods: 1, color: '#f4f5f7', layer: 'wall', elev: 30 },
+    { k: 'tomada2', n: 'Tomada dupla (bancada)', w: 12, d: 2, h: 12, sym: 'socket', mods: 2, color: '#f4f5f7', layer: 'wall', elev: 110 },
+    { k: 'tomadaA', n: 'Tomada alta (ar / TV)', w: 8, d: 2, h: 12, sym: 'socket', mods: 1, color: '#f4f5f7', layer: 'wall', elev: 220 },
+    { k: 'interr', n: 'Interruptor', w: 8, d: 2, h: 12, sym: 'switch', mods: 1, color: '#f4f5f7', layer: 'wall', elev: 110 },
+    { k: 'interr2', n: 'Interruptor duplo', w: 8, d: 2, h: 12, sym: 'switch', mods: 2, color: '#f4f5f7', layer: 'wall', elev: 110 },
+  ]},
+  { cat: 'Pets', items: [
+    { k: 'frajola', n: 'Gato frajola', w: 22, d: 46, h: 28, sym: 'cat', coat: 'frajola', color: '#1d1d20' },
+    { k: 'rajadinha', n: 'Gata rajadinha', w: 20, d: 44, h: 26, sym: 'cat', coat: 'rajada', color: '#8f8270' },
+    { k: 'coelha', n: 'Coelha preta', w: 20, d: 36, h: 22, sym: 'rabbit', color: '#1c1b1d' },
+    { k: 'areia', n: 'Caixa de areia', w: 50, d: 38, h: 15, sym: 'litter', color: '#4f8fbf' },
+    { k: 'pet', n: 'Caminha pet', w: 70, d: 55, h: 20, sym: 'petbed', shape: 'round', color: '#c99b7b' },
+  ]},
+  { cat: 'Pessoas', items: [
+    { k: 'homem', n: 'Homem', w: 48, d: 26, h: 175, sym: 'person', gender: 'm', color: '#3e5f8a' },
+    { k: 'mulher', n: 'Mulher', w: 42, d: 24, h: 163, sym: 'person', gender: 'f', color: '#b0475f' },
+  ]},
   { cat: 'Outros', items: [
     { k: 'arcond', n: 'Ar-condicionado', w: 85, d: 22, h: 30, sym: 'ac', color: '#f2f3f5', layer: 'wall', elev: 210 },
     { k: 'bike', n: 'Bicicleta', w: 175, d: 60, h: 100, sym: 'bike', color: '#5a6b7d' },
     { k: 'piano', n: 'Piano digital', w: 135, d: 40, h: 80, sym: 'piano', color: '#2f3237' },
-    { k: 'pet', n: 'Caminha pet', w: 70, d: 55, h: 20, sym: 'petbed', shape: 'round', color: '#c99b7b' },
     { k: 'ret', n: 'Bloco retangular', w: 100, d: 60, h: 80, sym: 'generic', color: '#a7b1bd' },
     { k: 'circ', n: 'Bloco redondo', w: 60, d: 60, h: 80, sym: 'generic', shape: 'round', color: '#a7b1bd' },
     { k: 'pilar', n: 'Pilar / coluna', w: 30, d: 30, h: 260, sym: 'pillar', color: '#9aa0a6' },
@@ -104,12 +147,28 @@ export const SYMBOLS = [
   ['shower', 'Box'], ['bathtub', 'Banheira'], ['rug', 'Tapete'], ['lamp', 'Luminária'], ['plant', 'Planta'], ['box', 'Caixa'],
   ['suitcase', 'Mala'], ['ac', 'Ar-condicionado'], ['bike', 'Bicicleta'], ['piano', 'Piano'], ['petbed', 'Caminha pet'],
   ['rack', 'Varal'], ['pillar', 'Pilar'],
+  ['wallseg', 'Muro / parede'], ['fence', 'Grade'], ['gate', 'Portão'], ['ground', 'Piso externo'],
+  ['bulb', 'Lâmpada'], ['pendant', 'Luminária pendente'], ['indlight', 'Iluminação industrial'], ['socket', 'Tomada'], ['switch', 'Interruptor'],
+  ['cat', 'Gato'], ['rabbit', 'Coelho'], ['litter', 'Caixa de areia'], ['person', 'Pessoa'],
 ];
 
-export const COLORS = ['#8fa3bf', '#c9a27e', '#b08d6e', '#a98467', '#d9cbb8', '#e9e4dc', '#dfe3e8', '#2f3237', '#6aa36f', '#c8a26b', '#d98e73', '#9b8ec4', '#e8d27c', '#5a6b7d', '#f4f5f7', '#c97b8e'];
-export const FLOOR_COLORS = ['#efe6d8', '#e3d2b8', '#c9a77f', '#ddd9d2', '#cfd6dc', '#e9e1f0', '#dbe8d9', '#f3efe7'];
+// Opções dos itens especiais
+export const FENCE_PATTERNS = { vertical: 'Vertical', diagonal: 'Diagonal', cross: 'Losango', mixed: 'Vertical + diagonal' };
+export const GATE_STYLES = { panel: 'Chapa (basculante)', bars: 'Grade', slats: 'Ripado' };
+export const GROUND_TEX = {
+  grass: ['Grama', '#7fae5a'], concrete: ['Concreto', '#bdbab4'], tiles: ['Cerâmico', '#d9d4ca'],
+  deck: ['Deck', '#a8784f'], gravel: ['Pedrisco', '#b9b2a6'], soil: ['Terra', '#8a6a4f'],
+};
+export const CAT_COATS = { frajola: ['Frajola', '#1d1d20'], rajada: ['Rajadinha', '#8f8270'], laranja: ['Laranja', '#d28a45'], preto: ['Preto', '#1d1d20'], branco: ['Branco', '#f1efea'] };
+// Itens que não contam como "batendo" (muros, grades, luz, pessoas, pets…)
+export const NO_CLASH = new Set(['wallseg', 'fence', 'gate', 'ground', 'bulb', 'pendant', 'indlight', 'socket', 'switch', 'person', 'cat', 'rabbit']);
+export const LIGHT_SYMS = new Set(['bulb', 'pendant', 'indlight']);
 
-export const ROOM_NAMES = ['Sala', 'Quarto', 'Suíte', 'Cozinha', 'Banheiro', 'Área de serviço', 'Escritório', 'Varanda', 'Corredor', 'Closet', 'Sala de jantar', 'Garagem'];
+export const COLORS = ['#8fa3bf', '#c9a27e', '#b08d6e', '#a98467', '#d9cbb8', '#e9e4dc', '#dfe3e8', '#2f3237', '#6aa36f', '#c8a26b', '#d98e73', '#9b8ec4', '#e8d27c', '#5a6b7d', '#f4f5f7', '#c97b8e'];
+export const FLOOR_COLORS = ['#efe6d8', '#e3d2b8', '#c9a77f', '#ddd9d2', '#cfd6dc', '#e9e1f0', '#dbe8d9', '#f3efe7', '#8fbf6a', '#bdbab4'];
+
+export const ROOM_NAMES = ['Sala', 'Quarto', 'Suíte', 'Cozinha', 'Banheiro', 'Área de serviço', 'Escritório', 'Varanda', 'Corredor', 'Closet', 'Sala de jantar', 'Garagem', 'Lavabo', 'Quintal', 'Área externa'];
+export const OUTDOOR_NAMES = new Set(['Quintal', 'Área externa']);
 
 export const STATUS = {
   tenho: { n: 'Já tenho', c: '#2f855a' },
@@ -124,4 +183,6 @@ export const OPENING_TYPES = {
   slide: { n: 'Porta de correr', w: 160, h: 210, sill: 0 },
   window: { n: 'Janela', w: 120, h: 110, sill: 100 },
   pass: { n: 'Vão / passagem', w: 90, h: 210, sill: 0 },
+  garage: { n: 'Portão de garagem', w: 250, h: 220, sill: 0 },
+  cut: { n: 'Corte (sem parede)', w: 100, h: 0, sill: 0 },
 };

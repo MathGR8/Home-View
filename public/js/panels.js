@@ -1,13 +1,13 @@
 // Painéis: à esquerda (cômodos, catálogo, lista) e propriedades (à direita / folha no celular).
 import { app, $, $$, parseLen, fmtIn } from './ctx.js';
 import { store, analyze, roomAt } from './state.js';
-import { CATALOG, COLORS, FLOOR_COLORS, STATUS, OPENING_TYPES, SYMBOLS } from './catalog.js';
+import { CATALOG, COLORS, FLOOR_COLORS, STATUS, OPENING_TYPES, SYMBOLS, FENCE_PATTERNS, GATE_STYLES, GROUND_TEX, CAT_COATS, LIGHT_SYMS } from './catalog.js';
 import { previewSVG } from './symbols.js';
 import { icon } from './icons.js';
 import { esc, fmtLen, fmtArea, fmtMoney, signedArea, bbox, edgesOf, pointInPoly, parseNum, normAng } from './geometry.js';
 import * as A from './actions.js';
 import { dlgRoom, dlgCustomItem, exportCSV } from './dialogs.js';
-import { isMezz, isStair, stairInfo, setStairRun, STEEL_COLORS, DECK_COLORS, SIDE_NAMES, STRUCT_KEYS } from './struct.js';
+import { isMezz, isStair, stairInfo, setStairRun, mezzCols, STEEL_COLORS, DECK_COLORS, SIDE_NAMES, STRUCT_KEYS } from './struct.js';
 
 // ---------- utilitários de HTML ----------
 const numF = (label, f, v, unit = 'cm', extra = '') => `<label class="fld"><span>${label}</span><div class="unit"><input class="inp" data-f="${f}" inputmode="decimal" autocomplete="off" value="${fmtIn(v)}" ${extra}><em>${unit}</em></div></label>`;
@@ -80,8 +80,8 @@ function catalogHTML() {
 function listHTML() {
   const p = store.p;
   const filters = [['todos', 'Todos'], ...Object.entries(STATUS).map(([k, v]) => [k, v.n])];
-  let h = `<div class="chips">${filters.map(([k, n]) => `<button class="chip ${listFilter === k ? 'on' : ''}" data-act="listFilter" data-k="${k}">${n} <span class="tiny">${k === 'todos' ? p.items.length : p.items.filter((i) => i.status === k).length}</span></button>`).join('')}</div>`;
-  const items = p.items.filter((i) => listFilter === 'todos' || i.status === listFilter);
+  let h = `<div class="chips">${filters.map(([k, n]) => `<button class="chip ${listFilter === k ? 'on' : ''}" data-act="listFilter" data-k="${k}">${n} <span class="tiny">${p.items.filter((i) => i.sym !== 'person' && (k === 'todos' || i.status === k)).length}</span></button>`).join('')}</div>`;
+  const items = p.items.filter((i) => i.sym !== 'person' && (listFilter === 'todos' || i.status === listFilter));
   const groups = new Map();
   for (const it of items) {
     const r = roomAt(p, it.x, it.y);
@@ -164,6 +164,7 @@ function itemProps(it) {
   h += `<div class="quick">${ib('rot', 'rotL', 'Girar 90° à esquerda', '', 'data-v="-90"')}${ib('rot', 'rotR', 'Girar 90° à direita', '', 'data-v="90"')}${ib('dup', 'copy', 'Duplicar (Ctrl+D)')}${ib('lock', it.locked ? 'lock' : 'unlock', lockT, it.locked ? 'on' : '')}${ib('front', 'front', 'Trazer para frente')}${ib('del', 'trash', 'Apagar (Delete)', 'dng')}</div>`;
   h += `<h3>Medidas</h3><div class="grid3">${numF('Largura', 'w', it.w)}${numF('Profund.', 'd', it.d)}${numF('Altura', 'h', it.h)}</div>`;
   h += `<div class="row" style="margin-top:8px;align-items:flex-end">${numF('Giro', 'rot', it.rot, '°')}<button class="btn sm" data-act="swapWD" title="Trocar largura e profundidade">L ⇄ P</button></div>`;
+  h += extraProps(it);
   h += pushHTML();
   h += `<h3>Cor</h3>${swatches('color', it.color, COLORS)}`;
   h += statusHTML(st, it.price, it.note);
@@ -177,6 +178,39 @@ function itemProps(it) {
   if (a.bad.has(it.id)) h += `<p class="muted" style="color:var(--danger);margin-top:12px">${icon('warn', 14)} Este móvel está batendo em outro móvel ou passando da parede.</p>`;
   return h;
 }
+
+// Opções dos itens especiais (muro, grade, portão, piso, luz, tomadas, pets, pessoas)
+const optChips = (k, cur, opts) => `<div class="chips">${Object.entries(opts).map(([v, n]) => `<button class="chip ${cur === v ? 'on' : ''}" data-act="opt" data-k="${k}" data-v="${v}">${esc(Array.isArray(n) ? n[0] : n)}</button>`).join('')}</div>`;
+function extraProps(it) {
+  let h = '';
+  switch (it.sym) {
+    case 'wallseg': {
+      const sloped = it.h2 !== undefined && Math.abs(it.h2 - it.h) >= 1;
+      h += `<h3>Topo inclinado</h3><div class="grid2">${numF('Altura no fim', 'h2', it.h2 ?? it.h)}<span></span></div>`;
+      h += `<p class="tiny" style="margin:4px 0 0">A Altura (em Medidas) vale para o início (lado esquerdo com giro 0°). Com uma altura diferente no fim, o topo fica inclinado — bom para fechar o espaço embaixo da escada (ex.: banheiro).</p>`;
+      if (sloped) h += `<div class="btnrow" style="margin-top:8px">${btn('flatWall', 'Deixar reta', 'sm')}${btn('flipWall', 'Inverter inclinação', 'sm')}</div>`;
+      break;
+    }
+    case 'fence': h += `<h3>Gradeado</h3>${optChips('pattern', it.pattern || 'vertical', FENCE_PATTERNS)}<p class="tiny" style="margin:4px 0 0">Para pôr a grade em cima de uma mureta: Tipo → Na parede / suspenso e a altura do chão = altura da mureta.</p>`; break;
+    case 'gate': h += `<h3>Modelo</h3>${optChips('style', it.style || 'panel', GATE_STYLES)}`; break;
+    case 'ground': h += `<h3>Acabamento</h3>${optChips('tex', it.tex || 'grass', GROUND_TEX)}<p class="tiny" style="margin:4px 0 0">O piso externo fica por baixo dos cômodos. Puxe os quadradinhos para cobrir a área que quiser.</p>`; break;
+    case 'cat': h += `<h3>Pelagem</h3>${optChips('coat', it.coat || 'rajada', CAT_COATS)}`; break;
+    case 'socket': case 'switch': h += `<h3>${it.sym === 'socket' ? 'Tomadas' : 'Teclas'}</h3>${optChips('mods', String(it.mods || 1), { 1: '1', 2: '2', 3: '3' })}<p class="tiny" style="margin:4px 0 0">Altura do chão (embaixo): tomada baixa 30 cm, média 110 cm, alta 220 cm; interruptor 110 cm.</p>`; break;
+    case 'indlight': h += `<h3>Lâmpadas</h3><div class="grid2">${numF('Quantidade', 'bulbs', it.bulbs || 4, '')}${numF('Altura do chão', 'elev', it.elev || 0)}</div><p class="tiny" style="margin:4px 0 0">Altura do chão = até as lâmpadas. Altura (medidas) = comprimento dos cabos até o trilho.</p>`; break;
+    case 'person': {
+      const others = store.p.items.filter((o) => o.sym === 'person' && o.id !== it.id);
+      h += `<h3>Pessoa</h3>${optChips('gender', it.gender || 'm', { m: 'Homem', f: 'Mulher' })}`;
+      h += `<p class="muted" style="margin:6px 0 0">Altura ${fmtLen(it.h, 'm')} (mude em Medidas) · olhos a ~${fmtLen(eyeOf(it), 'm')}</p>`;
+      if (others.length) h += `<div class="lst" style="margin-top:8px">${others.map((o) => { const df = Math.round(it.h - o.h); return `<div class="li"><span class="sw" style="--c:${esc(o.color)}"></span><span class="grow"><b>${esc(o.name)}</b><small>${fmtLen(o.h, 'm')} · ${df === 0 ? 'mesma altura' : `${Math.abs(df)} cm mais ${df > 0 ? 'baixo(a)' : 'alto(a)'} que ${esc(it.name)}`}</small></span></div>`; }).join('')}</div>`;
+      h += `<div class="btnrow" style="margin-top:10px">${btn('viewAs', 'Ver pelos olhos no 3D', 'sm pri', '', 'target')}</div>`;
+      h += `<p class="tiny" style="margin:4px 0 0">Coloque a pessoa perto dos móveis, da bancada ou da escada para comparar as alturas.</p>`;
+      break;
+    }
+  }
+  if (LIGHT_SYMS.has(it.sym)) h += `<label class="check" style="margin-top:8px"><span>Acesa no 3D (veja no modo Noite)</span><input type="checkbox" data-f="lightOn" ${it.lightOn !== false ? 'checked' : ''}></label>`;
+  return h;
+}
+export const eyeOf = (it) => Math.max(20, it.h - Math.max(8, it.h * 0.065));
 
 // Mezanino e escadas
 function structProps(it) {
@@ -194,6 +228,10 @@ function structProps(it) {
     h += `<h3>Guarda-corpo</h3><div class="grid2">${numF('Altura', 'railH', it.railH ?? 110)}<span></span></div>`;
     h += ['s', 'n', 'w', 'e'].map((k) => `<label class="check"><span>${SIDE_NAMES[k]}</span><input type="checkbox" data-f="rail.${k}" ${rails.includes(k) ? 'checked' : ''}></label>`).join('');
     h += `<p class="tiny" style="margin:4px 0 0">Frente = lado de baixo na planta com giro 0°. Onde a escada chega o guarda-corpo abre sozinho.</p>`;
+    const cols = it.cols || 'auto', off = (it.noCols || []).length;
+    h += `<h3>Pilares (pernas)</h3><label class="fld"><span>Pilares</span><select class="inp" data-f="cols"><option value="auto" ${cols === 'auto' ? 'selected' : ''}>Todos</option><option value="corners" ${cols === 'corners' ? 'selected' : ''}>Só nos cantos</option><option value="none" ${cols === 'none' ? 'selected' : ''}>Nenhum (preso nas paredes)</option></select></label>`;
+    h += `<p class="tiny" style="margin:4px 0 0">${cols === 'none' ? 'Sem pilares: o mezanino fica apoiado nas paredes.' : `${mezzCols(it).length} pilar(es).`} No 3D, toque num pilar para tirar só ele.</p>`;
+    if (off || cols === 'none') h += `<div class="btnrow" style="margin-top:6px">${btn('restoreCols', off ? `Recolocar ${off} pilar(es) removido(s)` : 'Recolocar os pilares', 'sm', '', 'undo')}</div>`;
     h += `<h3>Estrutura (pilares, vigas)</h3>${swatches('color', it.color, STEEL_COLORS)}`;
     h += `<h3>Piso</h3>${swatches('deck', it.deck || '#8b939c', DECK_COLORS)}`;
     h += `<p class="tiny" style="margin:10px 0 0">Para colocar um móvel em cima: selecione o mezanino e escolha o móvel no catálogo, ou no móvel escolha <b>Andar → Em cima do mezanino</b>. Ao arrastar o mezanino, o que está em cima vai junto.</p>`;
@@ -264,14 +302,17 @@ function roomProps(r) {
   h += `<p class="muted" style="margin:6px 0 0">${fmtArea(area)} · ${fmtLen(b.x2 - b.x1, unit)} × ${fmtLen(b.y2 - b.y1, unit)}</p>`;
   if (isRectRoom(r)) h += `<h3>Medidas internas</h3><div class="grid2">${numF('Largura', 'rw', b.x2 - b.x1)}${numF('Profundidade', 'rh', b.y2 - b.y1)}</div><p class="tiny" style="margin:4px 0 0">Pode digitar em metros (3,5) ou centímetros (350).</p>`;
   h += `<div class="grid2" style="margin-top:8px">${numF('Pé-direito', 'rheight', r.height)}${numF('Parede', 'rwallT', r.wallT)}</div>`;
+  h += `<label class="check" style="margin-top:8px"><span>Sem paredes (área externa, quintal)</span><input type="checkbox" data-f="rnowalls" ${r.noWalls ? 'checked' : ''}></label>`;
   h += `<h3>Piso</h3>${swatches('rfloor', r.floor, FLOOR_COLORS)}`;
-  h += `<h3>Paredes</h3>`;
+  h += `<h3>${r.noWalls ? 'Lados' : 'Paredes'}</h3>`;
+  if (r.noWalls) h += `<p class="tiny" style="margin:0 0 4px">Área sem paredes: use muros, grades e portões do catálogo (Área externa) para fechar onde quiser.</p>`;
   const sideName = (e) => (Math.abs(e.dir[1]) < 0.01 ? (e.nIn[1] > 0 ? 'de cima' : 'de baixo') : Math.abs(e.dir[0]) < 0.01 ? (e.nIn[0] > 0 ? 'da esquerda' : 'da direita') : 'inclinada');
   for (const e of E) {
-    const ops = r.openings.filter((o) => o.edge === e.i);
-    h += `<div class="wall-row"><b>Parede ${e.i + 1} <span class="tiny">${sideName(e)}</span></b><div class="unit"><input class="inp" data-f="wall" data-i="${e.i}" inputmode="decimal" value="${fmtIn(e.len)}"><em>cm</em></div>
-      <div class="acts">${btn('addOp', 'Porta', 'sm', `data-i="${e.i}" data-t="door"`, 'plus')}${btn('addOp', 'Janela', 'sm', `data-i="${e.i}" data-t="window"`, 'plus')}${btn('addOp', 'Vão', 'sm', `data-i="${e.i}" data-t="pass"`, 'plus')}${btn('split', '', 'sm icon', `data-i="${e.i}" title="Dividir parede (criar um canto)"`, 'split')}
-      ${ops.map((o) => `<button class="chip" data-act="pickOp" data-id="${o.id}">${esc(OPENING_TYPES[o.type]?.n || o.type)} ${o.width}</button>`).join('')}</div></div>`;
+    const ops = r.openings.filter((o) => o.edge === e.i && !o.full);
+    const gone = r.openings.some((o) => o.full && o.edge === e.i);
+    h += `<div class="wall-row${gone ? ' gone' : ''}"><b>Parede ${e.i + 1} <span class="tiny">${sideName(e)}${gone ? ' · removida' : ''}</span></b><div class="unit"><input class="inp" data-f="wall" data-i="${e.i}" inputmode="decimal" value="${fmtIn(e.len)}"><em>cm</em></div>
+      <div class="acts"${r.noWalls ? ' hidden' : ''}>${gone ? '' : `${btn('addOp', 'Porta', 'sm', `data-i="${e.i}" data-t="door"`, 'plus')}${btn('addOp', 'Janela', 'sm', `data-i="${e.i}" data-t="window"`, 'plus')}${btn('addOp', 'Vão', 'sm', `data-i="${e.i}" data-t="pass"`, 'plus')}${btn('addOp', 'Corte', 'sm', `data-i="${e.i}" data-t="cut" title="Cortar um trecho da parede (sem parede, ou com mureta)"`, 'minus')}`}${btn('toggleWall', gone ? 'Devolver parede' : 'Tirar parede', 'sm', `data-i="${e.i}" title="${gone ? 'Colocar a parede de volta' : 'Remover a parede inteira'}"`, gone ? 'undo' : 'x')}${btn('split', '', 'sm icon', `data-i="${e.i}" title="Dividir parede (criar um canto)"`, 'split')}
+      ${ops.map((o) => `<button class="chip" data-act="pickOp" data-id="${o.id}">${esc(OPENING_TYPES[o.type]?.n || o.type)} ${Math.round(o.width)}</button>`).join('')}</div></div>`;
   }
   if (r.points.length > 4 || !isRectRoom(r)) {
     h += `<h3>Cantos</h3><div class="chips">${r.points.map((_, i) => `<button class="chip" data-act="rmCorner" data-i="${i}" title="Remover este canto">${icon('x', 12)} Canto ${i + 1}</button>`).join('')}</div>`;
@@ -285,9 +326,19 @@ function openingProps(r, o) {
   if (!r || !o) return '';
   const e = edgesOf(r.points)[o.edge];
   const isDoor = o.type === 'door' || o.type === 'door2';
-  let h = `<div class="ph"><b style="font-size:15px">${esc(OPENING_TYPES[o.type]?.n)} · ${esc(r.name)}</b><div class="grow"></div>${ib('pickRoomOf', 'arrowL', 'Voltar ao cômodo', 'sm', `data-id="${r.id}"`)}</div>`;
-  h += `<div class="quick">${ib('del', 'trash', 'Apagar', 'dng')}</div>`;
-  h += `<h3>Tipo</h3><div class="chips">${Object.entries(OPENING_TYPES).map(([k, v]) => `<button class="chip ${o.type === k ? 'on' : ''}" data-act="otype" data-v="${k}">${v.n}</button>`).join('')}</div>`;
+  let h = `<div class="ph"><b style="font-size:15px">${esc(o.full ? 'Parede removida' : OPENING_TYPES[o.type]?.n)} · ${esc(r.name)}</b><div class="grow"></div>${ib('pickRoomOf', 'arrowL', 'Voltar ao cômodo', 'sm', `data-id="${r.id}"`)}</div>`;
+  h += `<div class="quick">${ib('del', 'trash', o.type === 'cut' ? 'Apagar o corte (a parede volta)' : 'Apagar', 'dng')}</div>`;
+  if (o.type === 'cut') {
+    if (o.full) h += `<p class="muted" style="margin:6px 0 0">A parede ${o.edge + 1} inteira foi removida. Apague para a parede voltar.</p>`;
+    else {
+      h += `<h3>Corte na parede ${o.edge + 1}</h3><div class="grid2">${numF('Largura', 'owidth', o.width)}${numF('Mureta', 'osill', o.sill || 0)}</div>`;
+      h += `<p class="tiny" style="margin:4px 0 0">Mureta = altura de parede que fica embaixo do corte (0 = sem parede nenhuma; 110 = meia-parede/balcão).</p>`;
+      h += `<h3>Posição</h3><div class="grid2">${numF('Do início', 'ooff', o.off)}${numF('Do fim', 'oend', e.len - o.off - o.width)}</div><p class="tiny" style="margin:4px 0 0">Ou arraste o corte na planta.</p>`;
+    }
+    h += `<div class="btnrow" style="margin-top:10px">${btn('toggleWall', o.full ? 'Devolver a parede' : 'Tirar a parede inteira', 'sm', `data-i="${o.edge}" data-room="${r.id}"`, o.full ? 'undo' : 'x')}</div>`;
+    return h;
+  }
+  h += `<h3>Tipo</h3><div class="chips">${Object.entries(OPENING_TYPES).filter(([k]) => k !== 'cut').map(([k, v]) => `<button class="chip ${o.type === k ? 'on' : ''}" data-act="otype" data-v="${k}">${v.n}</button>`).join('')}</div>`;
   h += `<h3>Medidas</h3><div class="grid2">${numF('Largura', 'owidth', o.width)}${numF('Altura', 'oheight', o.height)}</div>`;
   if (o.type === 'window') h += `<div class="grid2" style="margin-top:8px">${numF('Peitoril (do chão)', 'osill', o.sill)}<span></span></div>`;
   h += `<h3>Posição na parede ${o.edge + 1}</h3><div class="grid2">${numF('Do início', 'ooff', o.off)}${numF('Do fim', 'oend', e.len - o.off - o.width)}</div><p class="tiny" style="margin:4px 0 0">Ou arraste a porta/janela na planta (dá para passar para outra parede).</p>`;
@@ -385,6 +436,31 @@ export function bindProps() {
       case 'pickOp': store.select({ kind: 'opening', room: s.id, id: d.id }); break;
       case 'pickRoomOf': store.select({ kind: 'room', id: d.id }); break;
       case 'split': A.splitWall(s.id, +d.i); break;
+      case 'toggleWall': {
+        const rid = d.room || s.id;
+        const off = A.toggleWall(rid, +d.i);
+        if (s?.kind === 'opening') store.select({ kind: 'room', id: rid });
+        app.toast(off ? `Parede ${+d.i + 1} removida` : `Parede ${+d.i + 1} de volta`);
+        break;
+      }
+      case 'opt': {
+        const k = d.k, v = d.v;
+        store.change(() => store.selItems().forEach((i) => {
+          if (k === 'mods') { i.mods = +v; return; }
+          i[k] = v;
+          if (k === 'tex' && GROUND_TEX[v]) { i.color = GROUND_TEX[v][1]; if (Object.values(GROUND_TEX).some(([n]) => n === i.name) || /^(Grama|Piso|Deck|Pedrisco|Terra)/.test(i.name)) i.name = GROUND_TEX[v][0]; }
+          if (k === 'coat' && CAT_COATS[v]) i.color = CAT_COATS[v][1];
+          if (k === 'gender') {
+            if (i.name === 'Homem' || i.name === 'Mulher') i.name = v === 'f' ? 'Mulher' : 'Homem';
+            if (i.h === 175 && v === 'f') i.h = 163; else if (i.h === 163 && v === 'm') i.h = 175;
+          }
+        }));
+        break;
+      }
+      case 'flatWall': store.change(() => store.selItems().forEach((i) => { delete i.h2; })); break;
+      case 'flipWall': store.change(() => store.selItems().forEach((i) => { if (i.h2 !== undefined) [i.h, i.h2] = [i.h2, i.h]; })); break;
+      case 'restoreCols': A.restoreCols(ids[0]); break;
+      case 'viewAs': app.viewAsPerson?.(ids[0]); break;
       case 'rmCorner': A.removeCorner(s.id, +d.i); break;
       case 'otype': store.change(() => { const r = store.room(s.room); const o = r.openings.find((x) => x.id === s.id); const t = OPENING_TYPES[d.v]; o.type = d.v; o.height = t.h; o.sill = t.sill; app.plan.clampOpenings(r); }); break;
       case 'clearMeasures': store.change((p) => { p.measures = []; }); store.select(null); break;
@@ -405,7 +481,7 @@ export function bindProps() {
     }
     if (s?.kind === 'items') {
       const its = store.selItems();
-      const numeric = ['w', 'd', 'h', 'rot', 'price', 'elev', 'thick', 'railH', 'steps', 'slope', 'lvl'];
+      const numeric = ['w', 'd', 'h', 'rot', 'price', 'elev', 'thick', 'railH', 'steps', 'slope', 'lvl', 'h2', 'bulbs'];
       if (f.startsWith('rail.')) {
         const k = f.slice(5);
         store.change(() => its.forEach((i) => { const r = (i.rails ?? 'nsew').replace(k, ''); i.rails = v ? r + k : r; }));
@@ -416,7 +492,8 @@ export function bindProps() {
         val = parseNum(v);
         if (!Number.isFinite(val) || (['w', 'd', 'h'].includes(f) && val <= 0)) return renderProps();
         if (f === 'rot') val = normAng(val);
-        if (['thick', 'railH', 'steps'].includes(f) && val < 0) return renderProps();
+        if (['thick', 'railH', 'steps', 'h2'].includes(f) && val < 0) return renderProps();
+        if (f === 'bulbs') val = Math.max(1, Math.min(24, Math.round(val)));
       }
       if (f === 'slope') {
         if (!(val >= 5 && val <= 85)) { app.toast('Use uma inclinação entre 5° e 85°'); return renderProps(); }
@@ -436,6 +513,7 @@ export function bindProps() {
     if (s?.kind === 'room') {
       const r = store.room(s.id);
       if (f === 'rname') store.change(() => { r.name = v.trim() || 'Cômodo'; });
+      else if (f === 'rnowalls') store.change(() => { r.noWalls = !!v; });
       else if (f === 'rfloor') store.change(() => { r.floor = v; });
       else if (f === 'rheight' || f === 'rwallT') { const n = parseLen(v, f === 'rheight'); if (n > 0) store.change(() => { r[f === 'rheight' ? 'height' : 'wallT'] = n; }); else renderProps(); }
       else if (f === 'rw' || f === 'rh') {
