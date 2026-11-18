@@ -6,8 +6,30 @@ export const isMezz = (it) => it?.sym === 'mezz';
 export const isStair = (it) => it?.sym === 'stair';
 export const isStruct = (it) => it?.layer === 'struct';
 
-// Campos extras que os itens de estrutura carregam (copiados do catálogo / Meus móveis)
-export const STRUCT_KEYS = ['deck', 'thick', 'railH', 'rails', 'steps'];
+// Campos extras que os itens carregam (copiados do catálogo / Meus móveis)
+export const STRUCT_KEYS = ['deck', 'thick', 'railH', 'rails', 'steps', 'cols', 'noCols',
+  'h2', 'tex', 'style', 'pattern', 'bulbs', 'mods', 'coat', 'gender', 'lightOn'];
+
+// Pilares do mezanino (cantos e no meio dos lados longos, no máximo a cada 3 m).
+// cols: 'auto' (todos) | 'corners' (só nos cantos) | 'none' (preso nas paredes). noCols: pilares removidos um a um.
+// Cada pilar: [x, y, chave]
+export function mezzCols(it, all = false) {
+  const hw = it.w / 2, hd = it.d / 2, ins = Math.min(8, it.w / 4, it.d / 4);
+  const nx = Math.max(1, Math.ceil(it.w / 300)), ny = Math.max(1, Math.ceil(it.d / 300));
+  const mode = all ? 'auto' : it.cols || 'auto';
+  if (mode === 'none') return [];
+  const off = new Set(all ? [] : it.noCols || []);
+  const pts = [];
+  for (let i = 0; i <= nx; i++) for (let j = 0; j <= ny; j++) {
+    if (i > 0 && i < nx && j > 0 && j < ny) continue; // só no contorno
+    const corner = (i === 0 || i === nx) && (j === 0 || j === ny);
+    if (mode === 'corners' && !corner) continue;
+    const key = `${i}-${j}`;
+    if (off.has(key)) continue;
+    pts.push([-hw + ins + ((it.w - 2 * ins) * i) / nx, -hd + ins + ((it.d - 2 * ins) * j) / ny, key]);
+  }
+  return pts;
+}
 
 export const STEEL_COLORS = ['#2b2f33', '#3c4650', '#6b7680', '#a3acb5', '#e9ecef', '#e0b13a', '#b8432f', '#2f5f8a'];
 export const DECK_COLORS = ['#8b939c', '#5d6670', '#b08d6e', '#c9a874', '#bdbab4', '#d9d4ca', '#7a5c43', '#e9e4dc'];
@@ -130,4 +152,42 @@ export function nearestMezzEdge(p, s) {
     }
   }
   return best;
+}
+
+// ---------- grades e portões (vista de frente, cm; x de -w/2 a w/2, y do chão para cima) ----------
+// Barras do gradeado dentro do quadro: [[x1, y1, x2, y2], ...]
+export function fenceBars(w, h, pattern = 'vertical') {
+  const x0 = -w / 2 + 3, x1 = w / 2 - 3, yb = 8, yt = h - 4;
+  const out = [];
+  if (yt - yb < 4 || x1 - x0 < 4) return out;
+  const vert = (sp) => { const n = Math.max(1, Math.round((x1 - x0) / sp)); for (let i = 1; i < n; i++) { const x = x0 + ((x1 - x0) * i) / n; out.push([x, yb, x, yt]); } };
+  // diagonais a 45°: dir = 1 (sobe para a direita) ou -1 (desce)
+  const diag = (sp, dir) => {
+    const step = sp * Math.SQRT2;
+    const cmin = dir > 0 ? x0 - yt : x0 + yb, cmax = dir > 0 ? x1 - yb : x1 + yt;
+    const start = cmin + (((cmax - cmin) % step) + step) % step / 2;
+    for (let c = start; c <= cmax; c += step) {
+      const ylo = dir > 0 ? Math.max(yb, x0 - c) : Math.max(yb, c - x1);
+      const yhi = dir > 0 ? Math.min(yt, x1 - c) : Math.min(yt, c - x0);
+      if (yhi - ylo < 1) continue;
+      out.push(dir > 0 ? [ylo + c, ylo, yhi + c, yhi] : [c - ylo, ylo, c - yhi, yhi]);
+    }
+  };
+  if (pattern === 'diagonal') diag(14, 1);
+  else if (pattern === 'cross') { diag(20, 1); diag(20, -1); }
+  else if (pattern === 'mixed') { vert(12); const sp = Math.max(25, (yt - yb) / 1.6); diag(sp, 1); diag(sp, -1); }
+  else vert(11);
+  return out;
+}
+// Postes da grade (no máximo a cada 2 m)
+export function fencePosts(w) {
+  const n = Math.max(1, Math.ceil(w / 200));
+  return Array.from({ length: n + 1 }, (_, i) => -w / 2 + (w * i) / n);
+}
+// Ripas/frisos do portão: posições ao longo de x (grade/ripado) ou de y (chapa)
+export function gateLines(w, h, style = 'panel') {
+  if (style === 'panel') { const n = Math.max(2, Math.round(h / 15)); return Array.from({ length: n - 1 }, (_, i) => (h * (i + 1)) / n); }
+  const sp = style === 'slats' ? 12 : 10;
+  const n = Math.max(2, Math.round((w - 6) / sp));
+  return Array.from({ length: n - 1 }, (_, i) => -w / 2 + 3 + ((w - 6) * (i + 1)) / n);
 }

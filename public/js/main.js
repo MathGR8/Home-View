@@ -4,10 +4,12 @@ import { store, sampleProject, migrate, newProject } from './state.js';
 import { local, cloud, syncAll } from './storage.js';
 import { Plan, thumbSVG } from './plan.js';
 import { icon } from './icons.js';
-import { esc, uid, fmtLen, fmtMoney, itemBox } from './geometry.js';
+import { esc, uid, fmtLen, fmtMoney, itemBox, edgesOf, projectOnSeg, rotPt } from './geometry.js';
 import { STATUS } from './catalog.js';
 import * as A from './actions.js';
-import { renderLeft, renderProps, bindLeft, bindProps } from './panels.js';
+import { renderLeft, renderProps, bindLeft, bindProps, eyeOf } from './panels.js';
+import { isMezz, isStair, mezzUnder } from './struct.js';
+import { OPENING_TYPES, LIGHT_SYMS } from './catalog.js';
 import { dlgProjects, dlgHelp, dlgCloud, closeDialog } from './dialogs.js';
 import { roomAt } from './state.js';
 
@@ -304,10 +306,11 @@ store.on((kind) => {
     renderProps(); renderLeft();
     if (app.view === '3d') rebuild3D(true);
   }
+  if (kind === 'sel' || kind === 'change') update3DSel();
   if (kind === 'sel') {
     renderProps();
     if (app.tab !== 'catalog') renderLeft();
-    if (app.isMobile()) {
+    if (app.isMobile() && app.view === '2d') {
       if (store.sel && propsMode === 'closed') setPropsMode('peek');
       if (!store.sel && propsMode === 'peek') setPropsMode('closed');
     }
@@ -332,9 +335,102 @@ async function ensure3D() {
     $('#v3Move').hidden = kind !== 'walk';
   };
   v3.onFly = (fly) => $$('#v3Move button').forEach((x) => x.classList.toggle('on', (x.dataset.m === 'fly') === fly));
+  v3.onPick = onPick3D;
   $('#v3Loading').hidden = true;
   return v3;
 }
+
+// ---------- selecionar e remover coisas no 3D ----------
+let pick3 = null; // última coisa tocada no 3D (com a peça: pilar, guarda-corpo, parede)
+function onPick3D(hit) {
+  pick3 = hit;
+  if (!hit) { store.select(null); return; }
+  if (hit.kind === 'item') store.select({ kind: 'items', ids: [hit.id] });
+  else store.select({ kind: 'room', id: hit.kind === 'wall' ? hit.room : hit.id });
+}
+let selShownAt = 0;
+const sbtn = (act, label, cls = '') => `<button class="btn sm ${cls}" data-s="${act}">${label}</button>`;
+function update3DSel() {
+  const box = $('#v3Sel');
+  if (!v3) return;
+  const s = store.sel;
+  v3.highlight(s?.kind === 'items' ? s.ids : []);
+  let h = '';
+  if (s?.kind === 'items') {
+    const its = store.selItems();
+    if (its.length === 1) {
+      const it = its[0];
+      const part = pick3?.kind === 'item' && pick3.id === it.id ? pick3.part : null;
+      h += `<b>${esc(it.name)}</b>`;
+      if (part?.startsWith('col:')) h += sbtn('col', 'Tirar este pilar', 'pri');
+      if (part?.startsWith('rail:')) h += sbtn('rail', isStair(it) ? 'Tirar este corrimão' : 'Tirar este guarda-corpo', 'pri');
+      if (isMezz(it) && (it.cols || 'auto') !== 'none') h += sbtn('noCols', 'Tirar todos os pilares');
+      if (isMezz(it) && ((it.noCols || []).length || it.cols === 'none')) h += sbtn('restoreCols', 'Recolocar pilares');
+      if (it.sym === 'person') h += sbtn('viewAs', 'Ver pelos olhos', 'pri');
+    } else h += `<b>${its.length} itens</b>`;
+    h += sbtn('props', 'Ajustes') + sbtn('del', 'Apagar', 'dng');
+  } else if (s?.kind === 'room') {
+    const r = store.room(s.id);
+    if (r && pick3?.kind === 'wall' && pick3.room === r.id) {
+      const gone = r.openings.some((o) => o.full && o.edge === pick3.edge);
+      h += `<b>Parede ${pick3.edge + 1} · ${esc(r.name)}</b>`;
+      if (!gone) h += sbtn('cut', 'Cortar 1 m aqui', 'pri') + sbtn('cutHalf', 'Meia-parede aqui');
+      h += sbtn('wall', gone ? 'Devolver a parede' : 'Tirar a parede inteira', gone ? '' : 'dng');
+    } else if (r) h += `<b>${esc(r.name)}</b>`;
+    if (r) h += sbtn('props', 'Ajustes');
+  } else if (s?.kind === 'opening') {
+    const r = store.room(s.room), o = r?.openings.find((x) => x.id === s.id);
+    if (o) h += `<b>${esc(o.full ? 'Parede removida' : OPENING_TYPES[o.type]?.n || '')} · ${esc(r.name)}</b>` + sbtn('props', 'Ajustes') + sbtn('del', o.type === 'cut' ? 'Desfazer corte' : 'Apagar', 'dng');
+  }
+  if (!h || app.view !== '3d') { box.hidden = true; box.innerHTML = ''; return; }
+  const html = h + `<button class="ib sm" data-s="close" aria-label="Fechar">${icon('x', 16)}</button>`;
+  // toque que selecionou não pode "clicar" no botão que aparece embaixo do dedo
+  if (box.hidden || box.innerHTML !== html) selShownAt = performance.now();
+  box.innerHTML = html;
+  box.hidden = false;
+  v3.ui?.hint.classList.add('fade');
+}
+$('#v3Sel').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-s]'); if (!b) return;
+  if (performance.now() - selShownAt < 450) return;
+  const a = b.dataset.s, s = store.sel;
+  const id = s?.kind === 'items' ? s.ids[0] : null;
+  const part = pick3?.part;
+  switch (a) {
+    case 'close': pick3 = null; store.select(null); break;
+    case 'del': pick3 = null; A.deleteSelection(); break;
+    case 'props':
+      if (app.isMobile()) app.openSheet('props');
+      else if (ui.right) toggleMin('right');
+      break;
+    case 'col': pick3.part = null; A.removeCol(id, part.slice(4)); app.toast('Pilar tirado — Desfazer (↶) coloca de volta'); break;
+    case 'rail': pick3.part = null; A.removeRail(id, part.slice(5)); break;
+    case 'noCols': store.change(() => { store.item(id).cols = 'none'; }); app.toast('Mezanino sem pilares (preso nas paredes)'); break;
+    case 'restoreCols': A.restoreCols(id); break;
+    case 'viewAs': app.viewAsPerson(id); break;
+    case 'cut': case 'cutHalf': {
+      const r = store.room(pick3.room), e = edgesOf(r.points)[pick3.edge];
+      const along = projectOnSeg(pick3.x, pick3.y, e.a, e.b).along;
+      const o = A.cutWall(r.id, pick3.edge, along, Math.min(100, e.len));
+      if (o && a === 'cutHalf') store.change(() => { const q = store.room(r.id).openings.find((x) => x.id === o.id); if (q) q.sill = 110; });
+      app.toast(a === 'cut' ? 'Parede cortada — ajuste largura e posição em Ajustes' : 'Meia-parede (110 cm) — ajuste em Ajustes');
+      break;
+    }
+    case 'wall': { const off = A.toggleWall(pick3.room, pick3.edge); app.toast(off ? 'Parede tirada' : 'Parede de volta'); break; }
+  }
+});
+
+// Ver o ambiente na altura dos olhos de uma pessoa
+app.viewAsPerson = async (id) => {
+  const it = store.item(id); if (!it) return;
+  if (app.view !== '3d') await setView('3d');
+  const v = await ensure3D();
+  const [fx, fy] = rotPt(0, 1, it.rot || 0), off = it.d / 2 + 8;
+  const feet = it.lvl ? mezzUnder(store.p, it.x, it.y) : 0;
+  pick3 = null; store.select(null);
+  if (app.isMobile()) app.closeSheets();
+  v.view('walk', { x: it.x + fx * off, y: it.y + fy * off, rot: it.rot || 0, eye: eyeOf(it), feet, name: it.name });
+};
 function rebuild3D(keep) {
   clearTimeout(v3T);
   v3T = setTimeout(async () => { const v = await ensure3D(); v.build(store.p, keep); }, keep ? 150 : 0);
@@ -351,12 +447,13 @@ async function setView(view) {
       const v = await ensure3D();
       v.build(store.p, true);
       v.start();
+      update3DSel();
     } catch (e) {
       $('#v3Loading').hidden = false;
       $('#v3Loading').textContent = 'Não foi possível abrir o 3D neste aparelho.';
       console.error(e);
     }
-  } else if (v3) v3.stop();
+  } else if (v3) { v3.stop(); $('#v3Sel').hidden = true; }
 }
 $('#viewSeg').addEventListener('click', (e) => { const v = e.target.closest('button')?.dataset.view; if (v) setView(v); });
 $('#v3View').addEventListener('click', (e) => {
@@ -367,6 +464,13 @@ $('#v3Move').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b || !v3) return;
   v3.setFly(b.dataset.m === 'fly');
   app.toast(b.dataset.m === 'fly' ? 'Voo livre: E/▲ sobe, Q/▼ desce, atravessa tudo' : 'Caminhando: sobe escadas e anda em cima do mezanino');
+});
+$('#v3Light').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b || !v3) return;
+  $$('#v3Light button').forEach((x) => x.classList.toggle('on', x === b));
+  const night = b.dataset.l === 'night';
+  v3.setNight(night);
+  if (night) app.toast(store.p.items.some((i) => LIGHT_SYMS.has(i.sym)) ? 'Noite: as lâmpadas estão acesas' : 'Noite: adicione lâmpadas em Móveis → Elétrica e luz');
 });
 $('#v3Walls').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b || !v3) return;

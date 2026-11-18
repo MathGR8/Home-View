@@ -2,18 +2,22 @@
 import * as T from '../vendor/three.bundle.js';
 import { edgesOf, isConvex, rad, clamp } from './geometry.js';
 import { openingSeg } from './state.js';
-import { isMezz, isStair, stairInfo, mezzRails, mezzUnder, floorAt } from './struct.js';
-import { mezzCols } from './symbols.js';
+import { isMezz, isStair, stairInfo, mezzRails, mezzUnder, floorAt, mezzCols, fenceBars, fencePosts, gateLines } from './struct.js';
+import { LIGHT_SYMS } from './catalog.js';
 
 const M = 0.01;
-const EYE = 160; // altura dos olhos (cm)
+const EYE = 160; // altura dos olhos padrão (cm)
+const MAX_LAMPS = 16; // luzes acesas de verdade no 3D (as outras só brilham)
 const MOVE_KEYS = new Set(['w', 'a', 's', 'd', 'q', 'e', 'c', ' ', 'shift', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'pageup', 'pagedown']);
 const typing = (e) => /^(INPUT|TEXTAREA|SELECT)$/.test(e.target?.tagName || '') || document.querySelector('dialog[open]');
+// zona morta + curva suave: pequenos toques no controle não fazem a câmera "escorregar"
+const curve = (v) => { const a = Math.abs(v); if (a < 0.12) return 0; const t = (a - 0.12) / 0.88; return Math.sign(v) * t * (0.35 + 0.65 * t); };
 
 export class View3D {
   constructor(el) {
     this.el = el;
     this.wallMode = 'low'; // full | low | none
+    this.night = false;
     this.renderer = new T.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     this.renderer.shadowMap.enabled = true;
@@ -27,7 +31,8 @@ export class View3D {
     this.controls.enableDamping = true;
     this.controls.maxPolarAngle = Math.PI * 0.495;
     this.controls.screenSpacePanning = true;
-    this.scene.add(new T.HemisphereLight(0xffffff, 0x9a8f80, 1.6));
+    this.hemi = new T.HemisphereLight(0xffffff, 0x9a8f80, 1.6);
+    this.scene.add(this.hemi);
     const sun = new T.DirectionalLight(0xffffff, 1.6);
     sun.position.set(8, 14, 6);
     sun.castShadow = true;
@@ -38,6 +43,10 @@ export class View3D {
     this.group = new T.Group();
     this.scene.add(this.group);
     this.mats = new Map();
+    this.texs = new Map();
+    this.ray = new T.Raycaster();
+    this.hl = [];
+    this.selIds = new Set();
     this.running = false;
     new ResizeObserver(() => this.resize()).observe(el);
     this.renderer.domElement.addEventListener('pointerdown', () => { this.interacted = true; });
@@ -47,11 +56,13 @@ export class View3D {
     this.mode = 'orbit'; // orbit | walk
     this.fly = false;
     this.keys = new Set();
-    this.joy = { x: 0, y: 0 };
+    this.joy = { x: 0, y: 0 };  // controle da esquerda: andar
+    this.turn = { x: 0, y: 0 }; // controle da direita: girar / olhar
     this.vert = 0;
-    this.yaw = 0; this.pitch = 0; this.feet = 0;
+    this.yaw = 0; this.pitch = 0; this.feet = 0; this.eye = EYE;
     this.anim = null;
     this.onFly = () => {};
+    this.onPick = () => {};
     this.bindMove();
   }
 
@@ -88,7 +99,7 @@ export class View3D {
       const moved = Math.hypot(e.clientX - tap.x, e.clientY - tap.y), now = performance.now();
       if (moved < 8 && now - tap.t < 350) {
         if (lastTap && now - lastTap.t < 380 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 30) { this.goToScreen(e.clientX, e.clientY); lastTap = null; }
-        else lastTap = { x: e.clientX, y: e.clientY, t: now };
+        else { lastTap = { x: e.clientX, y: e.clientY, t: now }; this.onPick(this.pick(e.clientX, e.clientY)); }
       }
       tap = null;
     };
@@ -103,25 +114,30 @@ export class View3D {
       if (this.fly) this.camera.position.y = Math.max(0.2, this.camera.position.y + Math.sin(this.pitch) * d);
     }, { passive: false });
 
-    // controle na tela (celular) + subir/descer
-    const joy = document.createElement('div');
-    joy.className = 'joy'; joy.hidden = true;
-    joy.innerHTML = '<i></i>';
-    joy.title = 'Arraste para andar';
-    const knob = joy.firstChild;
-    let jid = null;
-    const setJoy = (e) => {
-      const r = joy.getBoundingClientRect(), R = r.width / 2;
-      let dx = e.clientX - (r.left + R), dy = e.clientY - (r.top + R);
-      const l = Math.hypot(dx, dy), max = R * 0.62;
-      if (l > max) { dx *= max / l; dy *= max / l; }
-      knob.style.transform = `translate(${dx}px, ${dy}px)`;
-      this.joy = { x: dx / max, y: -dy / max };
+    // dois controles na tela, como num jogo: esquerda anda, direita gira a câmera
+    const makeJoy = (side, label, title, set) => {
+      const joy = document.createElement('div');
+      joy.className = 'joy ' + side; joy.hidden = true;
+      joy.innerHTML = `<i></i><span>${label}</span>`;
+      joy.title = title;
+      const knob = joy.firstChild;
+      let jid = null;
+      const upd = (e) => {
+        const r = joy.getBoundingClientRect(), R = r.width / 2;
+        let dx = e.clientX - (r.left + R), dy = e.clientY - (r.top + R);
+        const l = Math.hypot(dx, dy), max = R * 0.62;
+        if (l > max) { dx *= max / l; dy *= max / l; }
+        knob.style.transform = `translate(${dx}px, ${dy}px)`;
+        set(dx / max, -dy / max);
+      };
+      joy.addEventListener('pointerdown', (e) => { jid = e.pointerId; joy.setPointerCapture(e.pointerId); joy.classList.add('on'); upd(e); e.preventDefault(); });
+      joy.addEventListener('pointermove', (e) => { if (e.pointerId === jid) upd(e); });
+      const end = (e) => { if (e.pointerId !== jid) return; jid = null; set(0, 0); knob.style.transform = ''; joy.classList.remove('on'); };
+      joy.addEventListener('pointerup', end); joy.addEventListener('pointercancel', end);
+      return joy;
     };
-    joy.addEventListener('pointerdown', (e) => { jid = e.pointerId; joy.setPointerCapture(e.pointerId); setJoy(e); e.preventDefault(); });
-    joy.addEventListener('pointermove', (e) => { if (e.pointerId === jid) setJoy(e); });
-    const jend = (e) => { if (e.pointerId !== jid) return; jid = null; this.joy = { x: 0, y: 0 }; knob.style.transform = ''; };
-    joy.addEventListener('pointerup', jend); joy.addEventListener('pointercancel', jend);
+    const joyL = makeJoy('l', 'andar', 'Arraste para andar (frente, trás e para os lados)', (x, y) => { this.joy = { x, y }; });
+    const joyR = makeJoy('r', 'girar', 'Arraste para girar a câmera: direita = sentido horário, esquerda = anti-horário, cima/baixo = olhar', (x, y) => { this.turn = { x, y }; });
     const vb = document.createElement('div');
     vb.className = 'vbtns'; vb.hidden = true;
     vb.innerHTML = '<button data-v="1" aria-label="Subir" title="Subir (E)">▲</button><button data-v="-1" aria-label="Descer" title="Descer (Q)">▼</button>';
@@ -129,16 +145,24 @@ export class View3D {
     for (const ev of ['pointerup', 'pointercancel']) vb.addEventListener(ev, () => { this.vert = 0; });
     const hint = document.createElement('div');
     hint.className = 'v3-hint'; hint.hidden = true;
-    this.el.append(joy, vb, hint);
-    this.ui = { joy, vb, hint };
+    this.el.append(joyL, joyR, vb, hint);
+    this.ui = { joy: joyL, joyR, vb, hint };
+  }
+
+  // Controles aparecem no modo Andar e, em telas de toque, também na perspectiva
+  showJoys() {
+    const touch = matchMedia('(pointer: coarse)').matches;
+    const on = this.mode === 'walk' || touch;
+    this.ui.joy.hidden = !on; this.ui.joyR.hidden = !on;
+    this.ui.vb.hidden = !(this.mode === 'walk' && this.fly);
   }
 
   fwd() { return [-Math.sin(this.yaw), -Math.cos(this.yaw)]; }
 
   setFly(on) {
     this.fly = on;
-    if (!on && this.mode === 'walk') this.feet = floorAt(this.p, this.camera.position.x / M, this.camera.position.z / M, Math.max(0, this.camera.position.y / M - EYE) + 30);
-    this.ui.vb.hidden = !(on && this.mode === 'walk');
+    if (!on && this.mode === 'walk') this.feet = floorAt(this.p, this.camera.position.x / M, this.camera.position.z / M, Math.max(0, this.camera.position.y / M - this.eye) + 30);
+    this.showJoys();
     this.onFly(on);
   }
 
@@ -167,12 +191,49 @@ export class View3D {
     return best;
   }
 
+  // O que está embaixo do dedo/cursor: móvel (e a peça dele), parede ou piso de cômodo
+  pick(cx, cy) {
+    const r = this.renderer.domElement.getBoundingClientRect();
+    this.ray.setFromCamera(new T.Vector2(((cx - r.left) / r.width) * 2 - 1, -((cy - r.top) / r.height) * 2 + 1), this.camera);
+    for (const h of this.ray.intersectObjects(this.group.children, true)) {
+      let o = h.object, part = null;
+      while (o && o !== this.group) {
+        const u = o.userData;
+        if (!part && u.part) part = u.part;
+        if (u.item) return { kind: 'item', id: u.item, part };
+        if (u.room) return { kind: 'wall', room: u.room, edge: u.edge, x: h.point.x / M, y: h.point.z / M };
+        if (u.floorRoom) return { kind: 'room', id: u.floorRoom };
+        if (u.ground) return null;
+        o = o.parent;
+      }
+    }
+    return null;
+  }
+
+  // Destaca em azul o que está selecionado
+  highlight(ids) {
+    this.selIds = new Set(ids || []);
+    for (const o of this.hl) { o.material.dispose(); o.material = o.userData.mat0; }
+    this.hl = [];
+    if (!this.selIds.size) return;
+    for (const g of this.group.children) {
+      if (!g.userData.item || !this.selIds.has(g.userData.item)) continue;
+      g.traverse((o) => {
+        if (!o.isMesh) return;
+        o.userData.mat0 = o.material;
+        const m = o.material.clone();
+        m.emissive = new T.Color('#2563eb'); m.emissiveIntensity = 0.4;
+        o.material = m; this.hl.push(o);
+      });
+    }
+  }
+
   goToScreen(cx, cy) {
     const hit = this.pickFloor(cx, cy);
     if (!hit) return;
     const c = this.camera.position;
     if (this.mode === 'walk') {
-      const ty = this.fly ? c.y + (hit.y - (c.y - EYE * M)) : hit.y + EYE * M;
+      const ty = this.fly ? c.y + (hit.y - (c.y - this.eye * M)) : hit.y + this.eye * M;
       this.anim = { t: 0, from: [c.x, c.y, c.z], to: [hit.x, ty, hit.z], feet: hit.y / M };
     } else {
       const tg = this.controls.target;
@@ -193,11 +254,17 @@ export class View3D {
       return;
     }
     const has = (...ks) => ks.some((k) => K.has(k));
-    const f = clamp((has('w', 'arrowup') ? 1 : 0) - (has('s', 'arrowdown') ? 1 : 0) + this.joy.y, -1, 1);
-    const r = clamp((has('d', 'arrowright') ? 1 : 0) - (has('a', 'arrowleft') ? 1 : 0) + this.joy.x, -1, 1);
+    const jx = curve(this.joy.x), jy = curve(this.joy.y);
+    const f = clamp((has('w', 'arrowup') ? 1 : 0) - (has('s', 'arrowdown') ? 1 : 0) + jy, -1, 1);
+    const r = clamp((has('d') ? 1 : 0) - (has('a') ? 1 : 0) + jx, -1, 1);
     const u = clamp((has('e', ' ', 'pageup') ? 1 : 0) - (has('q', 'c', 'pagedown') ? 1 : 0) + this.vert, -1, 1);
+    // girar: controle da direita ou setas ← →. Para a direita = sentido horário (visto de cima)
+    const tx = clamp(curve(this.turn.x) + (has('arrowright') ? 1 : 0) - (has('arrowleft') ? 1 : 0), -1, 1);
+    const ty = curve(this.turn.y);
     const fast = K.has('shift');
     if (this.mode === 'walk') {
+      this.yaw -= tx * 1.9 * dt;
+      this.pitch = clamp(this.pitch + ty * 1.3 * dt, -1.45, 1.45);
       const sp = (fast ? 3.4 : 1.5) * dt;
       const [fx, fz] = this.fwd();
       c.x += (fx * f + -fz * r) * sp; c.z += (fz * f + fx * r) * sp;
@@ -205,13 +272,23 @@ export class View3D {
       else {
         const tgt = floorAt(this.p, c.x / M, c.z / M, this.feet);
         this.feet += (tgt - this.feet) * Math.min(1, dt * (tgt > this.feet ? 14 : 9));
-        c.y = (this.feet + EYE) * M;
+        c.y = (this.feet + this.eye) * M;
       }
       this.camera.rotation.set(this.pitch, this.yaw, 0);
       return;
     }
-    if (!f && !r && !u) return;
     const tg = this.controls.target;
+    // perspectiva: a câmera gira no próprio lugar (o ponto olhado anda em volta dela)
+    if (tx || ty) {
+      let vx = tg.x - c.x, vy = tg.y - c.y, vz = tg.z - c.z;
+      const a = tx * 1.6 * dt, ca = Math.cos(a), sa = Math.sin(a);
+      [vx, vz] = [vx * ca - vz * sa, vx * sa + vz * ca];
+      const L = Math.hypot(vx, vy, vz) || 1, hl = Math.hypot(vx, vz) || 1e-6;
+      const el = clamp(Math.atan2(vy, hl) + ty * 1.1 * dt, -1.5, 1.2);
+      const nh = Math.cos(el) * L;
+      tg.set(c.x + (vx / hl) * nh, c.y + Math.sin(el) * L, c.z + (vz / hl) * nh);
+    }
+    if (!f && !r && !u) return;
     let dx = tg.x - c.x, dz = tg.z - c.z;
     const dist = Math.hypot(dx, dz, tg.y - c.y);
     const l = Math.hypot(dx, dz) || 1; dx /= l; dz /= l;
@@ -255,7 +332,10 @@ export class View3D {
 
   clear() {
     this.group.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+    for (const o of this.hl) o.material.dispose();
+    this.hl = [];
     this.group.clear();
+    this.lamps = 0;
   }
 
   box(w, h, d, color, x, y, z, parent, opts) {
@@ -263,10 +343,36 @@ export class View3D {
     m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;
     parent.add(m); return m;
   }
-  cyl(rt, rb, h, color, x, y, z, parent, seg = 28) {
-    const m = new T.Mesh(new T.CylinderGeometry(rt, rb, h, seg), this.mat(color));
+  cyl(rt, rb, h, color, x, y, z, parent, seg = 28, opts, open = false) {
+    const m = new T.Mesh(new T.CylinderGeometry(rt, rb, h, seg, 1, open), this.mat(color, opts));
     m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;
     parent.add(m); return m;
+  }
+  // Esfera com raios diferentes em x, y, z (elipsoide)
+  ell(rx, ry, rz, color, x, y, z, parent, opts) {
+    const m = new T.Mesh(new T.SphereGeometry(1, 18, 12), this.mat(color, opts));
+    m.scale.set(Math.max(1e-4, rx), Math.max(1e-4, ry), Math.max(1e-4, rz)); m.position.set(x, y, z); m.castShadow = true; m.receiveShadow = true;
+    parent.add(m); return m;
+  }
+  // Barra cilíndrica entre dois pontos locais
+  rod(a, b, r, color, parent, opts) {
+    const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
+    const L = Math.hypot(dx, dy, dz) || 1e-4;
+    const m = this.cyl(r, r, L, color, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2, parent, 10, opts);
+    // gira o eixo y do cilindro para a direção a→b
+    const axis = new this.V3(dz, 0, -dx); const ang = Math.acos(clamp(dy / L, -1, 1));
+    if (axis.length() > 1e-6) m.quaternion.setFromAxisAngle(axis.normalize(), ang);
+    else if (dy < 0) m.rotation.x = Math.PI;
+    return m;
+  }
+
+  // Dia / noite: de noite as lâmpadas acendem de verdade
+  setNight(on) {
+    this.night = on;
+    this.hemi.intensity = on ? 0.22 : 1.6;
+    this.sun.intensity = on ? 0.06 : 1.6;
+    this.scene.background = new T.Color(on ? '#0c1220' : '#eef1f4');
+    if (this.p) this.build(this.p, true);
   }
 
   build(p, keepCamera = true) {
@@ -279,19 +385,21 @@ export class View3D {
       const g = new T.ShapeGeometry(sh);
       g.rotateX(Math.PI / 2);
       const floor = new T.Mesh(g, this.mat(r.floor, { side: T.DoubleSide }));
-      floor.position.y = 0.002; floor.receiveShadow = true;
+      floor.position.y = 0.004; floor.receiveShadow = true;
+      floor.userData.floorRoom = r.id;
       this.group.add(floor);
       all.push(...r.points);
     }
     // aberturas de todos os cômodos (para furar paredes encostadas)
     const ops = [];
-    for (const r of p.rooms) for (const o of r.openings) { const sg = openingSeg(r, o); if (sg) ops.push({ o, s: sg.s, t: sg.t, T: r.wallT }); }
+    for (const r of p.rooms) for (const o of r.openings) { const sg = openingSeg(r, o); if (sg) ops.push({ o, s: sg.s, t: sg.t, T: r.wallT, room: r.id }); }
     for (const r of p.rooms) this.buildWalls(r, ops);
     for (const it of p.items) this.buildItem(it, p);
     for (const it of p.items) all.push([it.x, it.y]);
     // chão externo
     const ground = new T.Mesh(new T.PlaneGeometry(400, 400), this.mat('#dfe3e6'));
-    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
+    ground.rotation.x = -Math.PI / 2; ground.position.y = -0.01; ground.receiveShadow = true;
+    ground.userData.ground = true;
     this.group.add(ground);
     if (!all.length) all.push([0, 0], [400, 300]);
     let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
@@ -302,9 +410,11 @@ export class View3D {
     const sc = this.sun.shadow.camera; sc.left = -size; sc.right = size; sc.top = size; sc.bottom = -size; sc.far = size * 4 + 30; sc.updateProjectionMatrix();
     this.bounds = { cx, cz, size };
     if (!keepCamera || !this.placed) { this.view('iso'); this.placed = true; }
+    if (this.selIds.size) this.highlight([...this.selIds]);
   }
 
-  view(kind) {
+  // at (opcional): { x, y, rot, eye, feet, name } para ver pelos olhos de uma pessoa
+  view(kind, at = null) {
     const { cx, cz, size } = this.bounds || { cx: 0, cz: 0, size: 6 };
     const dist = Math.max(4, size * 1.25);
     this.anim = null;
@@ -313,18 +423,21 @@ export class View3D {
     this.mode = walk ? 'walk' : 'orbit';
     this.controls.enabled = !walk;
     this.camera.fov = walk ? 70 : 50; this.camera.updateProjectionMatrix();
-    this.ui.joy.hidden = !walk;
-    this.ui.vb.hidden = !(walk && this.fly);
+    this.showJoys();
     if (walk) {
-      const x = cx, z = cz + size * 0.45;
-      this.yaw = 0; this.pitch = -0.08;
-      this.feet = this.fly ? 0 : floorAt(this.p || { items: [] }, x / M, z / M, 0);
-      this.camera.position.set(x, (this.feet + EYE) * M, z);
+      if (at) { if (this.fly) this.setFly(false); }
+      const x = at ? at.x * M : cx, z = at ? at.y * M : cz + size * 0.45;
+      this.eye = at?.eye ?? EYE;
+      this.yaw = at ? Math.PI - rad(at.rot || 0) : 0; this.pitch = at ? -0.12 : -0.08;
+      this.feet = this.fly ? 0 : at?.feet ?? floorAt(this.p || { items: [] }, x / M, z / M, 0);
+      this.camera.position.set(x, (this.feet + this.eye) * M, z);
       this.camera.rotation.set(this.pitch, this.yaw, 0);
       const touch = matchMedia('(pointer: coarse)').matches;
-      this.showHint(touch ? 'Arraste a tela para olhar · use o controle redondo para andar · toque duas vezes num ponto do chão para ir até lá' : 'Arraste para olhar · W A S D ou setas para andar (Shift = correr) · Q/E descer/subir · clique duas vezes no chão para ir até lá');
+      if (at?.name) this.showHint(`Vendo pelos olhos de ${at.name}: olhos a ${String(Math.round(this.eye) / 100).replace('.', ',')} m do chão`);
+      else this.showHint(touch ? 'Controle da esquerda: andar · controle da direita: girar a câmera · toque num objeto para ver opções · toque duas vezes no chão para ir até lá' : 'Arraste para olhar · W A S D andar · ← → girar (Shift = correr) · Q/E descer/subir · clique num objeto para ver opções');
       return;
     }
+    this.eye = EYE;
     this.ui.hint.hidden = true;
     if (kind === 'top') this.camera.position.set(cx, dist * 1.3, cz + 0.01);
     else if (kind === 'walk') this.camera.position.set(cx, 1.6, cz + size * 0.45);
@@ -335,7 +448,7 @@ export class View3D {
 
   buildWalls(r, ops) {
     const H = this.wallMode === 'full' ? r.height : this.wallMode === 'low' ? Math.min(100, r.height) : 0;
-    if (!H) return;
+    if (!H || r.noWalls) return;
     const t = r.wallT;
     const E = edgesOf(r.points);
     const n = r.points.length;
@@ -352,18 +465,28 @@ export class View3D {
         if (ds < -q.T - 1 || ds > t + q.T + 1) continue; // longe
         let a = along(q.s), b = along(q.t); if (a > b) [a, b] = [b, a];
         if (b < -ext0 || a > e.len + ext1) continue;
+        // parede inteira removida: leva junto os cantos desta parede
+        if (q.o.full && q.room === r.id && q.o.edge === e.i) { a = -ext0; b = e.len + ext1; }
         cuts.push({ a, b, o: q.o });
       }
       cuts.sort((p, q) => p.a - q.a);
       const segs = [];
       let pos = -ext0;
       for (const c of cuts) {
+        const o = c.o, cut = o.type === 'cut';
         if (c.a > pos) segs.push({ a: pos, b: c.a, y0: 0, y1: H });
-        const top = c.o.type === 'window' ? c.o.sill + c.o.height : c.o.height;
-        const bottom = c.o.type === 'window' ? c.o.sill : 0;
-        if (bottom > 0) segs.push({ a: Math.max(pos, c.a), b: c.b, y0: 0, y1: Math.min(bottom, H) });
-        if (top < H) segs.push({ a: Math.max(pos, c.a), b: c.b, y0: top, y1: H });
-        if (c.o.type === 'window' && bottom < H) segs.push({ a: c.a, b: c.b, y0: bottom, y1: Math.min(top, H), glass: true });
+        const top = cut ? Infinity : o.type === 'window' ? o.sill + o.height : o.height;
+        const bottom = cut ? Math.max(0, o.sill || 0) : o.type === 'window' ? o.sill : 0;
+        const a = Math.max(pos, c.a);
+        if (bottom > 0) segs.push({ a, b: c.b, y0: 0, y1: Math.min(bottom, H) });
+        if (top < H) segs.push({ a, b: c.b, y0: top, y1: H });
+        if (o.type === 'window' && bottom < H) segs.push({ a: c.a, b: c.b, y0: bottom, y1: Math.min(top, H), glass: true });
+        if (o.type === 'garage') {
+          // portão fechado: chapa com frisos
+          const gt = Math.min(top, H);
+          segs.push({ a: c.a, b: c.b, y0: 0, y1: gt, color: '#6b7480', th: 4, opts: { metalness: 0.35, roughness: 0.5 } });
+          for (let y = 15; y < gt - 5; y += 15) segs.push({ a: c.a + 2, b: c.b - 2, y0: y - 0.6, y1: y + 0.6, color: '#4d555f', th: 5 });
+        }
         pos = Math.max(pos, c.b);
       }
       if (pos < e.len + ext1) segs.push({ a: pos, b: e.len + ext1, y0: 0, y1: H });
@@ -373,8 +496,11 @@ export class View3D {
         const mid = (s.a + s.b) / 2;
         const cx = e.a[0] + e.dir[0] * mid - e.nIn[0] * (t / 2);
         const cz = e.a[1] + e.dir[1] * mid - e.nIn[1] * (t / 2);
-        const m = this.box(L * M, h * M, (s.glass ? 1.5 : t) * M, s.glass ? '#9fc9e8' : '#f4f2ee', cx * M, ((s.y0 + s.y1) / 2) * M, cz * M, this.group, s.glass ? { transparent: true, opacity: 0.35, roughness: 0.1 } : undefined);
+        const th = s.glass ? 1.5 : s.th ?? t;
+        const col = s.glass ? '#9fc9e8' : s.color || '#f4f2ee';
+        const m = this.box(L * M, h * M, th * M, col, cx * M, ((s.y0 + s.y1) / 2) * M, cz * M, this.group, s.glass ? { transparent: true, opacity: 0.35, roughness: 0.1 } : s.opts);
         m.rotation.y = -Math.atan2(e.dir[1], e.dir[0]);
+        m.userData = { room: r.id, edge: e.i };
         if (s.glass) m.castShadow = false;
       }
     }
@@ -484,6 +610,23 @@ export class View3D {
       case 'box': B(w, h, d, c, 0, h / 2, 0); B(w + 0.004, 0.004, 0.06, '#d9c08f', 0, h + 0.001, 0); break;
       case 'bike': { const wr = Math.min(0.34, h * 0.35); for (const sx of [-1, 1]) { const wh = this.cyl(wr, wr, 0.03, '#222', sx * (w / 2 - wr), base + wr, 0, g, 24); wh.rotation.x = Math.PI / 2; } B(w * 0.6, 0.03, 0.03, c, 0, wr * 1.6, 0); B(0.03, 0.03, d, '#222', w / 2 - wr * 1.2, h, 0); break; }
       case 'pillar': B(w, h, d, c, 0, h / 2, 0); break;
+      case 'wallseg': this.buildWallSeg(it, g, base); break;
+      case 'fence': this.buildFence(it, g, base); break;
+      case 'gate': this.buildGate(it, g, base); break;
+      case 'ground': this.buildGround(it, g); break;
+      case 'bulb': case 'pendant': case 'indlight': this.buildLight(it, g, base); break;
+      case 'socket': case 'switch': this.buildPlate(it, g, base); break;
+      case 'cat': this.buildCat(it, g, base); break;
+      case 'rabbit': this.buildRabbit(it, g, base); break;
+      case 'person': this.buildPerson(it, g, base); break;
+      case 'litter': {
+        const t = 0.008, sand = Math.max(0.02, h * 0.55);
+        B(w, t, d, c, 0, t / 2, 0);
+        B(w, h, t, c, 0, h / 2, d / 2 - t / 2); B(w, h, t, c, 0, h / 2, -d / 2 + t / 2);
+        B(t, h, d - 2 * t, c, w / 2 - t / 2, h / 2, 0); B(t, h, d - 2 * t, c, -w / 2 + t / 2, h / 2, 0);
+        B(w - 2 * t, sand, d - 2 * t, '#e2d3a8', 0, sand / 2, 0);
+        break;
+      }
       default:
         if (it.shape === 'round') { const m = this.cyl(w / 2, w / 2, h, c, 0, base + h / 2, 0, g); m.scale.z = d / w; }
         else B(w, h, d, c, 0, h / 2, 0);
@@ -491,7 +634,272 @@ export class View3D {
     if (it.status === 'sai') g.traverse((o) => { if (o.material) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.35; } });
     g.position.set(it.x * M, 0, it.y * M);
     g.rotation.y = -rad(it.rot || 0);
+    g.userData.item = it.id;
     this.group.add(g);
+  }
+
+  // ---------- área externa ----------
+  // Muro / parede solta. Com h2 diferente de h o topo fica inclinado (ex.: embaixo da escada)
+  buildWallSeg(it, g, base) {
+    const w = it.w * M, d = Math.max(0.01, it.d * M), h = Math.max(0.01, it.h * M), h2 = Math.max(0, (it.h2 ?? it.h) * M);
+    if (Math.abs(h2 - h) < 0.01) {
+      this.box(w, h, d, it.color, 0, base + h / 2, 0, g);
+      if (it.d >= 12) this.box(w + 0.02, 0.025, d + 0.04, shade(it.color, -0.07), 0, base + h + 0.0125, 0, g);
+      return;
+    }
+    const sh = new T.Shape([new T.Vector2(-w / 2, 0), new T.Vector2(w / 2, 0), new T.Vector2(w / 2, h2), new T.Vector2(-w / 2, h)]);
+    const geo = new T.ExtrudeGeometry(sh, { depth: d, bevelEnabled: false });
+    geo.translate(0, 0, -d / 2);
+    const m = new T.Mesh(geo, this.mat(it.color));
+    m.position.y = base; m.castShadow = true; m.receiveShadow = true;
+    g.add(m);
+  }
+
+  // Grade: quadro, postes e gradeado (vertical, diagonal, losango ou misto)
+  buildFence(it, g, base) {
+    const w = it.w * M, h = Math.max(0.1, it.h * M), col = it.color, so = { metalness: 0.5, roughness: 0.45 };
+    const bt = clamp(it.d * M * 0.5, 0.012, 0.025);
+    this.box(w, 0.03, bt * 1.4, col, 0, base + h - 0.02, 0, g, so);
+    this.box(w, 0.03, bt * 1.4, col, 0, base + 0.06, 0, g, so);
+    for (const x of fencePosts(it.w)) this.box(0.045, h, 0.045, col, x * M, base + h / 2, 0, g, so);
+    for (const [x1, y1, x2, y2] of fenceBars(it.w, it.h, it.pattern)) {
+      const L = Math.hypot(x2 - x1, y2 - y1) * M;
+      const m = this.box(L, bt, bt, col, ((x1 + x2) / 2) * M, base + ((y1 + y2) / 2) * M, 0, g, so);
+      m.rotation.z = Math.atan2(y2 - y1, x2 - x1);
+    }
+  }
+
+  // Portão: chapa com frisos (basculante), grade ou ripado
+  buildGate(it, g, base) {
+    const w = it.w * M, h = Math.max(0.1, it.h * M), d = Math.max(0.02, it.d * M), col = it.color, st = it.style || 'panel';
+    const so = { metalness: 0.35, roughness: 0.5 }, dark = shade(col, -0.16), f = 0.05;
+    this.box(w, f, d, col, 0, base + h - f / 2, 0, g, so);
+    this.box(w, f, d, col, 0, base + f / 2, 0, g, so);
+    this.box(f, h, d, col, -w / 2 + f / 2, base + h / 2, 0, g, so);
+    this.box(f, h, d, col, w / 2 - f / 2, base + h / 2, 0, g, so);
+    if (st === 'panel') {
+      this.box(w - 2 * f, h - 2 * f, d * 0.5, col, 0, base + h / 2, 0, g, so);
+      for (const y of gateLines(it.w, it.h, 'panel')) this.box(w - 2 * f, 0.012, d * 0.8, dark, 0, base + y * M, 0, g, so);
+    } else if (st === 'slats') {
+      const n = Math.max(2, Math.round((it.w - 10) / 12)), sw = ((w - 2 * f) / n) * 0.75;
+      for (let i = 0; i < n; i++) this.box(sw, h - 2 * f, d * 0.6, col, -w / 2 + f + ((w - 2 * f) * (i + 0.5)) / n, base + h / 2, 0, g);
+    } else {
+      this.box(w - 2 * f, 0.03, d * 0.7, col, 0, base + h * 0.5, 0, g, so);
+      for (const x of gateLines(it.w, it.h, 'bars')) this.box(0.016, h - 2 * f, 0.016, col, x * M, base + h / 2, 0, g, so);
+    }
+  }
+
+  // Piso externo com textura (grama, concreto, cerâmico, deck, pedrisco, terra)
+  buildGround(it, g) {
+    const w = it.w * M, d = it.d * M, raised = it.h > 1.5;
+    const th = raised ? it.h * M : 0.004;
+    const m = new T.Mesh(new T.BoxGeometry(w, th, d), this.groundMat(it.tex || 'grass', it.color, it.w, it.d));
+    m.position.y = raised ? th / 2 : 0.0015 - th / 2;
+    m.receiveShadow = true;
+    g.add(m);
+  }
+
+  groundMat(tex, color, wcm, dcm) {
+    const size = { grass: 100, concrete: 200, tiles: 120, deck: 112, gravel: 80, soil: 100 }[tex] || 100;
+    const rx = Math.max(1, Math.round((wcm / size) * 4) / 4), ry = Math.max(1, Math.round((dcm / size) * 4) / 4);
+    const key = `g:${tex}:${color}:${rx}:${ry}`;
+    if (!this.mats.has(key)) {
+      const t = this.groundTex(tex).clone();
+      t.needsUpdate = true;
+      t.wrapS = t.wrapT = T.RepeatWrapping;
+      t.repeat.set(rx, ry);
+      this.mats.set(key, new T.MeshStandardMaterial({ color: new T.Color(color), map: t, roughness: tex === 'tiles' ? 0.55 : 0.95, metalness: 0 }));
+    }
+    return this.mats.get(key);
+  }
+
+  // Texturas desenhadas na hora (claras, para serem tingidas pela cor do piso)
+  groundTex(tex) {
+    if (this.texs.has(tex)) return this.texs.get(tex);
+    const N = 256, c = document.createElement('canvas'); c.width = c.height = N;
+    const x = c.getContext('2d');
+    let seed = 7; const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const fill = (v) => `rgb(${v},${v},${v})`;
+    x.fillStyle = fill(tex === 'grass' ? 225 : 232); x.fillRect(0, 0, N, N);
+    if (tex === 'grass') {
+      for (let i = 0; i < 2600; i++) { const px = rnd() * N, py = rnd() * N, v = 170 + rnd() * 85; x.strokeStyle = `rgb(${v * 0.9},${v},${v * 0.85})`; x.lineWidth = 1 + rnd(); x.beginPath(); x.moveTo(px, py); x.lineTo(px + (rnd() - 0.5) * 4, py - 3 - rnd() * 5); x.stroke(); }
+    } else if (tex === 'concrete' || tex === 'soil') {
+      for (let i = 0; i < 5000; i++) { const v = tex === 'soil' ? 150 + rnd() * 105 : 200 + rnd() * 55; x.fillStyle = fill(v | 0); const r = tex === 'soil' ? 1 + rnd() * 2.5 : 1 + rnd(); x.fillRect(rnd() * N, rnd() * N, r, r); }
+      if (tex === 'concrete') { x.fillStyle = fill(165); x.fillRect(0, 0, N, 2); x.fillRect(0, 0, 2, N); }
+    } else if (tex === 'tiles') {
+      const n = 2, s = N / n;
+      for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) { x.fillStyle = fill((236 + rnd() * 16) | 0); x.fillRect(i * s, j * s, s, s); }
+      x.fillStyle = fill(175);
+      for (let i = 0; i <= n; i++) { x.fillRect(i * s - 1.5, 0, 3, N); x.fillRect(0, i * s - 1.5, N, 3); }
+    } else if (tex === 'deck') {
+      const n = 8, s = N / n;
+      for (let j = 0; j < n; j++) {
+        x.fillStyle = fill((205 + rnd() * 45) | 0); x.fillRect(0, j * s, N, s);
+        x.strokeStyle = 'rgba(80,60,40,.18)'; x.lineWidth = 1;
+        for (let k = 0; k < 4; k++) { const y = j * s + 4 + rnd() * (s - 8); x.beginPath(); x.moveTo(0, y); x.bezierCurveTo(N * 0.3, y + rnd() * 4 - 2, N * 0.7, y + rnd() * 4 - 2, N, y); x.stroke(); }
+        x.fillStyle = fill(110); x.fillRect(0, j * s, N, 2);
+        const cut = rnd() * N; x.fillRect(cut, j * s, 2, s);
+      }
+    } else if (tex === 'gravel') {
+      for (let i = 0; i < 1800; i++) { const v = 150 + rnd() * 105; x.fillStyle = fill(v | 0); x.beginPath(); x.ellipse(rnd() * N, rnd() * N, 2 + rnd() * 3, 1.5 + rnd() * 2.5, rnd() * 3, 0, Math.PI * 2); x.fill(); }
+    }
+    const t = new T.CanvasTexture(c);
+    t.colorSpace = T.SRGBColorSpace;
+    this.texs.set(tex, t);
+    return t;
+  }
+
+  // ---------- luz ----------
+  // Lâmpadas brilham sempre; no modo Noite iluminam o ambiente de verdade
+  glowMat(on) { return this.mat('#fff6dc', { emissive: new T.Color('#ffd27a'), emissiveIntensity: on ? (this.night ? 2.4 : 0.9) : 0, roughness: 0.3 }); }
+  addLamp(g, x, y, z, on) {
+    if (!on || !this.night || this.lamps >= MAX_LAMPS) return;
+    const L = new T.PointLight('#ffd9a0', 4, 0, 1.6);
+    L.position.set(x, y, z);
+    g.add(L); this.lamps++;
+  }
+  buildLight(it, g, base) {
+    const on = it.lightOn !== false, col = it.color, h = Math.max(0.02, it.h * M), w = it.w * M, so = { metalness: 0.4, roughness: 0.45 };
+    const bulb = (r, x, y, z) => { const m = new T.Mesh(new T.SphereGeometry(r, 16, 12), this.glowMat(on)); m.position.set(x, y, z); g.add(m); return m; };
+    if (it.sym === 'bulb') {
+      const r = Math.min(it.w, it.d) * M * 0.5;
+      if (h > 2 * r) this.cyl(r * 0.45, r * 0.45, h - 2 * r, '#e9e6df', 0, base + 2 * r + (h - 2 * r) / 2, 0, g, 12);
+      bulb(r, 0, base + r, 0);
+      this.addLamp(g, 0, base + r, 0, on);
+      return;
+    }
+    // abajur (cúpula) com lâmpada dentro, pendurado por um cabo
+    const shadeAt = (x, r, cable) => {
+      const sh = Math.min(r * 1.1, Math.max(0.06, h * 0.45));
+      const dome = this.cyl(r * 0.28, r, sh, col, x, base + sh / 2, 0, g, 24, { ...so, side: T.DoubleSide }, true);
+      dome.castShadow = false;
+      this.cyl(r * 0.28, r * 0.28, 0.01, col, x, base + sh, 0, g, 16, so);
+      bulb(r * 0.3, x, base + sh * 0.28, 0);
+      if (cable > 0) this.cyl(0.004, 0.004, cable, '#222', x, base + sh + cable / 2, 0, g, 6);
+      this.addLamp(g, x, base + sh * 0.2, 0, on);
+    };
+    if (it.sym === 'pendant') {
+      const r = Math.min(it.w, it.d) * M * 0.5, sh = Math.min(r * 1.1, Math.max(0.06, h * 0.45));
+      shadeAt(0, r, h - sh);
+      this.cyl(0.05, 0.05, 0.02, col, 0, base + h, 0, g, 16, so);
+      return;
+    }
+    const nb = Math.max(1, Math.round(it.bulbs || 4));
+    const r = clamp(Math.min((it.w / nb) * 0.34, it.d * 0.6 + 4), 4, 13) * M;
+    const sh = Math.min(r * 1.1, Math.max(0.06, h * 0.45));
+    this.box(w, 0.03, 0.045, col, 0, base + h, 0, g, so);
+    for (let i = 0; i < nb; i++) shadeAt(-w / 2 + (w * (i + 0.5)) / nb, r, h - sh - 0.015);
+    // tirantes até o teto
+    for (const sx of [-1, 1]) this.cyl(0.003, 0.003, 0.4, '#222', sx * w * 0.4, base + h + 0.2, 0, g, 6);
+  }
+
+  // Tomada e interruptor (espelho 4×2 encostado na parede: fundo em -z)
+  buildPlate(it, g, base) {
+    const w = it.w * M, h = it.h * M, d = Math.max(0.006, it.d * M), mods = Math.max(1, Math.round(it.mods || 1));
+    this.box(w, h, d, it.color, 0, base + h / 2, 0, g, { roughness: 0.4 });
+    const front = d / 2 + 0.001, mw = w / (it.sym === 'socket' ? mods : 1);
+    for (let i = 0; i < mods; i++) {
+      if (it.sym === 'socket') {
+        const x = -w / 2 + mw * (i + 0.5), r = Math.min(mw, h) * 0.32, y = base + h / 2;
+        const c = this.cyl(r, r, 0.004, '#e4e4e2', x, y, front, g, 20); c.rotation.x = Math.PI / 2;
+        for (const [hx, hy] of [[-0.3, 0.12], [0.3, 0.12], [0, -0.32]]) { const p = this.cyl(r * 0.13, r * 0.13, 0.006, '#2a2a2a', x + hx * r, y + hy * r, front + 0.002, g, 8); p.rotation.x = Math.PI / 2; }
+      } else {
+        const kh = (h * 0.62) / mods;
+        this.box(w * 0.5, kh * 0.85, 0.008, '#ebebe8', 0, base + h * 0.19 + kh * (i + 0.5), front + 0.003, g, { roughness: 0.35 });
+      }
+    }
+  }
+
+  // ---------- pets ----------
+  buildCat(it, g, base) {
+    const W = it.w * M, D = it.d * M, H = it.h * M, coat = it.coat || 'rajada', c = it.color;
+    const white = '#f4f2ee', dark = shade(c, coat === 'rajada' || coat === 'laranja' ? -0.16 : -0.08);
+    const frajola = coat === 'frajola';
+    const bz = -D * 0.08, bry = H * 0.21, brz = D * 0.3, brx = W * 0.42;
+    this.ell(brx, bry, brz, c, 0, base + H * 0.44, bz, g);
+    this.ell(W * 0.3, H * 0.2, D * 0.13, frajola ? white : c, 0, base + H * 0.52, D * 0.16, g);
+    const rH = Math.min(W * 0.36, H * 0.2), hy = base + H - rH * 1.15, hz = D * 0.33;
+    this.ell(rH, rH * 0.9, rH * 0.92, c, 0, hy, hz, g);
+    for (const sx of [-1, 1]) {
+      const ear = new T.Mesh(new T.ConeGeometry(rH * 0.36, rH * 0.62, 4), this.mat(c));
+      ear.position.set(sx * rH * 0.52, hy + rH * 0.82, hz - rH * 0.05); ear.rotation.z = -sx * 0.28; ear.castShadow = true; g.add(ear);
+      this.ell(rH * 0.13, rH * 0.13, rH * 0.07, '#c9b23a', sx * rH * 0.36, hy + rH * 0.12, hz + rH * 0.8, g, { roughness: 0.2 });
+      this.ell(rH * 0.05, rH * 0.1, rH * 0.04, '#111', sx * rH * 0.36, hy + rH * 0.12, hz + rH * 0.86, g);
+    }
+    this.ell(rH * 0.42, rH * 0.3, rH * 0.3, frajola ? white : shade(c, 0.1), 0, hy - rH * 0.3, hz + rH * 0.72, g);
+    this.ell(rH * 0.1, rH * 0.07, rH * 0.06, '#d98c99', 0, hy - rH * 0.12, hz + rH * 0.98, g);
+    const lr = W * 0.085, lh = H * 0.36;
+    for (const [sx, z] of [[-1, D * 0.13], [1, D * 0.13], [-1, -D * 0.28], [1, -D * 0.28]]) {
+      this.cyl(lr, lr * 0.9, lh, c, sx * W * 0.2, base + lh / 2, z, g, 10);
+      this.ell(lr * 1.15, lr * 0.6, lr * 1.4, frajola ? white : c, sx * W * 0.2, base + lr * 0.5, z + lr * 0.3, g);
+    }
+    // rabo levantado para trás
+    const t0 = [0, base + H * 0.48, bz - brz * 0.92], ang = 1.0, tl = D * 0.55;
+    const t1 = [0, t0[1] + Math.sin(ang) * tl, t0[2] - Math.cos(ang) * tl];
+    this.rod(t0, t1, W * 0.065, c, g);
+    // listras da rajada (anéis em volta do corpo e do rabo)
+    if (coat === 'rajada' || coat === 'laranja') {
+      for (const f of [-0.7, -0.4, -0.1, 0.2, 0.5]) {
+        const dz = f * brz, k = Math.sqrt(Math.max(0.05, 1 - f * f)) * 1.005;
+        const ring = new T.Mesh(new T.TorusGeometry(1, 0.035, 5, 32), this.mat(dark));
+        ring.scale.set(brx * k, bry * k, 0.35 * D); ring.position.set(0, base + H * 0.44, bz + dz); g.add(ring);
+      }
+      for (const f of [0.35, 0.6, 0.85]) {
+        const ring = new T.Mesh(new T.TorusGeometry(W * 0.066, W * 0.01, 5, 16), this.mat(dark));
+        ring.position.set(0, t0[1] + (t1[1] - t0[1]) * f, t0[2] + (t1[2] - t0[2]) * f); ring.rotation.x = Math.PI / 2 - ang; g.add(ring);
+      }
+    }
+  }
+
+  buildRabbit(it, g, base) {
+    const W = it.w * M, D = it.d * M, H = it.h * M, c = it.color, inner = shade(c, 0.14);
+    this.ell(W * 0.46, H * 0.36, D * 0.36, c, 0, base + H * 0.36, -D * 0.08, g);
+    for (const sx of [-1, 1]) this.ell(W * 0.15, H * 0.17, D * 0.22, c, sx * W * 0.34, base + H * 0.16, -D * 0.12, g);
+    for (const sx of [-1, 1]) this.ell(W * 0.08, H * 0.06, D * 0.1, c, sx * W * 0.14, base + H * 0.05, D * 0.2, g);
+    const rH = Math.min(W * 0.32, H * 0.3), hy = base + H * 0.62, hz = D * 0.26;
+    this.ell(rH, rH * 0.92, rH * 1.05, c, 0, hy, hz, g);
+    for (const sx of [-1, 1]) {
+      const e1 = this.ell(rH * 0.26, rH * 1.15, rH * 0.12, c, sx * rH * 0.32, hy + rH * 1.55, hz - rH * 0.35, g);
+      e1.rotation.set(-0.35, 0, -sx * 0.18);
+      const e2 = this.ell(rH * 0.16, rH * 0.95, rH * 0.05, inner, sx * rH * 0.32, hy + rH * 1.55, hz - rH * 0.27, g);
+      e2.rotation.set(-0.35, 0, -sx * 0.18);
+      this.ell(rH * 0.14, rH * 0.16, rH * 0.08, '#3a2414', sx * rH * 0.5, hy + rH * 0.15, hz + rH * 0.82, g, { roughness: 0.15 });
+    }
+    this.ell(rH * 0.12, rH * 0.08, rH * 0.06, '#b07a86', 0, hy - rH * 0.15, hz + rH * 1.0, g);
+    this.ell(W * 0.15, W * 0.15, W * 0.13, '#f1efea', 0, base + H * 0.4, -D * 0.44, g);
+  }
+
+  // ---------- pessoas (para comparar alturas) ----------
+  buildPerson(it, g, base) {
+    const H = it.h * M, W = it.w * M, D = it.d * M, fem = it.gender === 'f';
+    const skin = '#d9a98a', hair = fem ? '#4a2f22' : '#2e231d', shirt = it.color, pants = fem ? '#3b4352' : '#36404e', shoe = '#2a2a2a';
+    const hR = H * 0.064, hy = base + H - hR * 1.02;
+    this.ell(hR * 0.8, hR, hR * 0.88, skin, 0, hy, 0, g);
+    this.ell(hR * 0.86, hR * 0.78, hR * 0.95, hair, 0, hy + hR * 0.26, -hR * 0.08, g);
+    if (fem) this.ell(hR * 0.88, hR * 1.55, hR * 0.55, hair, 0, hy - hR * 0.85, -hR * 0.45, g);
+    for (const sx of [-1, 1]) this.ell(hR * 0.1, hR * 0.08, hR * 0.05, '#2a1d16', sx * hR * 0.3, hy + hR * 0.08, hR * 0.82, g);
+    this.cyl(H * 0.028, H * 0.03, H * 0.06, skin, 0, base + H * 0.845, 0, g, 12);
+    const yS = H * 0.815, yH = H * 0.53;
+    const torso = this.cyl(1, fem ? 0.78 : 0.88, 1, shirt, 0, base + (yS + yH) / 2, 0, g, 22);
+    torso.scale.set(W * 0.4, yS - yH, D * 0.42);
+    this.ell(W * 0.44, H * 0.035, D * 0.4, shirt, 0, base + yS - H * 0.005, 0, g);
+    // pernas
+    const legTop = fem ? H * 0.42 : yH + 0.02;
+    for (const sx of [-1, 1]) {
+      const x = sx * W * 0.12;
+      if (fem) this.cyl(W * 0.085, W * 0.065, legTop - H * 0.04, skin, x, base + (legTop + H * 0.04) / 2, 0, g, 12);
+      else this.cyl(W * 0.12, W * 0.09, legTop - H * 0.04, pants, x, base + (legTop + H * 0.04) / 2, 0, g, 12);
+      this.box(W * 0.14, H * 0.04, D * 0.62, shoe, x, base + H * 0.02, D * 0.12, g);
+    }
+    if (fem) this.cyl(W * 0.36, W * 0.46, yH + 0.03 - H * 0.4, shirt, 0, base + (yH + 0.03 + H * 0.4) / 2, 0, g, 22).scale.z = (D * 0.5) / (W * 0.46);
+    else this.cyl(W * 0.4, W * 0.38, H * 0.06, pants, 0, base + yH, 0, g, 22).scale.z = (D * 0.42) / (W * 0.4);
+    // braços: manga curta e antebraço
+    for (const sx of [-1, 1]) {
+      const sxp = sx * (W * 0.5 - W * 0.07), y0 = base + yS - 0.02, ye = base + H * 0.64, yw = base + H * 0.47;
+      this.rod([sxp, y0, 0], [sxp + sx * 0.01, ye, 0], W * 0.075, shirt, g);
+      this.rod([sxp + sx * 0.01, ye, 0], [sxp + sx * 0.025, yw, D * 0.04], W * 0.05, skin, g);
+      this.ell(W * 0.05, W * 0.075, W * 0.04, skin, sxp + sx * 0.027, yw - W * 0.06, D * 0.045, g);
+    }
   }
 
   steel(color) { return { metalness: 0.45, roughness: 0.45 }; }
@@ -516,17 +924,22 @@ export class View3D {
     }
     // pilares com chapa de base
     const ch = H - t - bh;
-    if (ch > 0.05) for (const [x, y] of mezzCols(it)) {
-      this.box(0.1, ch, 0.1, col, x * M, ch / 2, y * M, g, so);
-      this.box(0.2, 0.012, 0.2, col, x * M, 0.006, y * M, g, so);
+    if (ch > 0.05) for (const [x, y, key] of mezzCols(it)) {
+      this.box(0.1, ch, 0.1, col, x * M, ch / 2, y * M, g, so).userData.part = 'col:' + key;
+      this.box(0.2, 0.012, 0.2, col, x * M, 0.006, y * M, g, so).userData.part = 'col:' + key;
     }
     // guarda-corpo (abre onde a escada chega)
     const rh = (it.railH ?? 110) * M;
-    if (rh > 0.05) for (const r of mezzRails(p, it)) this.railLine(g, r.a, r.b, H, rh, col, so, true);
+    if (rh > 0.05) for (const r of mezzRails(p, it)) this.railLine(g, r.a, r.b, H, rh, col, so, true, 'rail:' + r.side);
   }
 
   // Guarda-corpo reto entre dois pontos locais (cm), em cima da altura y0 (m)
-  railLine(g, a, b, y0, rh, col, so, kick) {
+  railLine(g, a, b, y0, rh, col, so, kick, part) {
+    const n0 = g.children.length;
+    this.railLine0(g, a, b, y0, rh, col, so, kick);
+    if (part) for (const m of g.children.slice(n0)) m.userData.part = part;
+  }
+  railLine0(g, a, b, y0, rh, col, so, kick) {
     const ax = a[0] * M, az = a[1] * M, bx = b[0] * M, bz = b[1] * M;
     const L = Math.hypot(bx - ax, bz - az); if (L < 0.05) return;
     const ang = -Math.atan2(bz - az, bx - ax);
@@ -561,9 +974,9 @@ export class View3D {
     if (rh > 0.05) for (const [k, sx] of [['w', -1], ['e', 1]]) {
       if (!rails.includes(k)) continue;
       const x = sx * (w / 2 - 0.01);
-      const bar = this.box(0.045, 0.045, L, col, x, H / 2 + rh, 0, g, so); bar.rotation.x = ang;
+      const bar = this.box(0.045, 0.045, L, col, x, H / 2 + rh, 0, g, so); bar.rotation.x = ang; bar.userData.part = 'rail:' + k;
       const np = Math.max(1, Math.ceil(L / 1.2));
-      for (let j = 0; j <= np; j++) { const f = j / np; this.box(0.035, rh, 0.035, col, x, f * H + rh / 2, d / 2 - f * d, g, so); }
+      for (let j = 0; j <= np; j++) { const f = j / np; this.box(0.035, rh, 0.035, col, x, f * H + rh / 2, d / 2 - f * d, g, so).userData.part = 'rail:' + k; }
     }
   }
 

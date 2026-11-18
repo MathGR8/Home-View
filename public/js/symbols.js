@@ -9,10 +9,17 @@ const E = (cx, cy, rx, ry, cls = 'f') => `<ellipse class="${cls}" cx="${n(cx)}" 
 const L = (x1, y1, x2, y2, cls = 'l') => `<line class="${cls}" x1="${n(x1)}" y1="${n(y1)}" x2="${n(x2)}" y2="${n(y2)}"/>`;
 const P = (d, cls = 'l') => `<path class="${cls}" d="${d}"/>`;
 const cl = (v, a, b) => Math.max(a, Math.min(b, v));
-import { stairInfo } from './struct.js';
+import { stairInfo, mezzCols, fenceBars, fencePosts, gateLines } from './struct.js';
+export { mezzCols };
+
+// Elipse como subcaminho (para juntar várias formas num corpo só)
+const EP = (cx, cy, rx, ry) => `M${n(cx - rx)},${n(cy)}a${n(rx)},${n(ry)} 0 1,0 ${n(2 * rx)},0a${n(rx)},${n(ry)} 0 1,0 ${n(-2 * rx)},0Z`;
 
 export function bodyShape(it, cls = 'b') {
   const hw = it.w / 2, hd = it.d / 2;
+  if (it.sym === 'cat') return P(EP(0, -it.d * 0.1, hw * 0.82, hd * 0.6) + EP(0, hd * 0.6, hw * 0.68, hw * 0.68) + `M${n(-hw * 0.62)},${n(hd * 0.52)}L${n(-hw * 0.5)},${n(hd * 0.98)}L${n(-hw * 0.12)},${n(hd * 0.7)}ZM${n(hw * 0.62)},${n(hd * 0.52)}L${n(hw * 0.5)},${n(hd * 0.98)}L${n(hw * 0.12)},${n(hd * 0.7)}Z`, cls);
+  if (it.sym === 'rabbit') return P(EP(0, -it.d * 0.12, hw * 0.92, hd * 0.6) + EP(0, hd * 0.55, hw * 0.6, hw * 0.62), cls);
+  if (it.sym === 'person') return P(EP(0, 0, hw, hd * 0.78) + EP(0, hd * 0.05, Math.min(hd * 0.82, hw * 0.42), Math.min(hd * 0.82, hw * 0.42)), cls);
   if (it.shape === 'round') return E(0, 0, hw, hd, cls);
   if (it.sym === 'sofaL' || it.sym === 'deskL') {
     const a = lArm(it);
@@ -149,25 +156,139 @@ export function symbolDetails(it) {
       s += P(`M${n1(-ah * 0.6)},${n1(-hd + 4 + ah)}L0,${n1(-hd + 4)}L${n1(ah * 0.6)},${n1(-hd + 4 + ah)}`, 'l arrow');
       return s;
     }
+    case 'wallseg': {
+      if (it.h2 === undefined || Math.abs(it.h2 - it.h) < 1) return L(-hw + 2, 0, hw - 2, 0, 'l faint');
+      // cunha: grossa no lado mais alto
+      const hi = it.h >= it.h2 ? -1 : 1;
+      return P(`M${n(hi * hw)},${n(-hd * 0.8)}L${n(-hi * hw)},0L${n(hi * hw)},${n(hd * 0.8)}Z`, 'k');
+    }
+    case 'fence': {
+      let s = L(-hw, 0, hw, 0, 'l');
+      const c = cl(d * 1.4, 4, 8);
+      for (const x of fencePosts(w)) s += R(x - c / 2, -c / 2, c, c, 'k col');
+      return s;
+    }
+    case 'gate': {
+      let s = L(-hw, 0, hw, 0, 'l thick');
+      if ((it.style || 'panel') === 'panel') { const sw = cl(it.h * 0.35, 30, 90); s += R(-hw, hd, w, sw, 'l dash'); }
+      return s;
+    }
+    case 'ground': return groundDetails(it);
+    case 'bulb': return E(0, 0, hw * 0.75, hd * 0.75, 'f') + L(-hw * 0.6, -hd * 0.6, hw * 0.6, hd * 0.6) + L(hw * 0.6, -hd * 0.6, -hw * 0.6, hd * 0.6) + E(0, 0, 14, 14, 'hit0');
+    case 'pendant': return E(0, 0, hw * 0.55, hd * 0.55, 'f') + E(0, 0, hw * 0.18, hd * 0.18, 'k');
+    case 'indlight': {
+      const nb = Math.max(1, Math.round(it.bulbs || 4));
+      let s = L(-hw + 2, 0, hw - 2, 0, 'l thick');
+      const r = cl(Math.min(d * 0.5, w / nb / 2.4), 3, 12);
+      for (let i = 0; i < nb; i++) { const x = -hw + (w * (i + 0.5)) / nb; s += E(x, 0, r, r, 'f') + L(x - r * 0.6, -r * 0.6, x + r * 0.6, r * 0.6) + L(x + r * 0.6, -r * 0.6, x - r * 0.6, r * 0.6); }
+      return s;
+    }
+    case 'socket': return P(`M${n(-5)},${n(hd)}L5,${n(hd)}L0,${n(hd + 8)}Z`, 'k col') + E(0, hd + 3, 12, 12, 'hit0');
+    case 'switch': return E(0, hd + 4, 3.5, 3.5, 'k col') + L(0, hd + 4, 5, hd + 9, 'l thick') + E(0, hd + 3, 12, 12, 'hit0');
+    case 'cat': {
+      let s = P(`M0,${n(-hd * 0.68)}Q${n(hw * 1.4)},${n(-hd * 0.9)} ${n(hw * 0.7)},${n(-hd * 1.25)}`, 'l tail');
+      if (it.coat === 'frajola') s += E(0, hd * 0.25, hw * 0.4, hd * 0.2, 'w') + E(0, hd * 0.78, hw * 0.3, hw * 0.24, 'w');
+      else if (it.coat === 'rajada' || !it.coat) for (const f of [-0.42, -0.22, -0.02, 0.18]) s += L(-hw * 0.62, d * f, hw * 0.62, d * f, 'k stripe');
+      return s + E(-hw * 0.24, hd * 0.68, 1.4, 1.4, 'k col') + E(hw * 0.24, hd * 0.68, 1.4, 1.4, 'k col');
+    }
+    case 'rabbit': return E(-hw * 0.22, hd * 0.02, hw * 0.16, hd * 0.42, 'k') + E(hw * 0.22, hd * 0.02, hw * 0.16, hd * 0.42, 'k') + E(0, -hd * 0.78, hw * 0.24, hw * 0.24, 'w');
+    case 'litter': return R(-hw + 3, -hd + 3, w - 6, d - 6, 'sand', 3) + E(-w * 0.12, d * 0.05, 1.5, 1.5, 'k') + E(w * 0.15, -d * 0.1, 1.5, 1.5, 'k') + E(w * 0.02, d * 0.2, 1.5, 1.5, 'k');
+    case 'person': {
+      const hr = Math.min(hd * 0.82, hw * 0.42);
+      return E(0, hd * 0.05, hr, hr, 'skin') + P(`M${n(-hr)},${n(hd * 0.05)}A${n(hr)},${n(hr)} 0 0 1 ${n(hr)},${n(hd * 0.05)}Z`, it.gender === 'f' ? 'hair' : 'hair') + P(`M${n(-hr * 0.35)},${n(hd * 0.05 + hr * 0.9)}L0,${n(hd * 0.05 + hr * 1.35)}L${n(hr * 0.35)},${n(hd * 0.05 + hr * 0.9)}`, 'l');
+    }
     default: return '';
   }
 }
 
-// Pilares do mezanino (cantos e no meio dos lados longos, no máximo a cada 3 m)
-export function mezzCols(it) {
-  const hw = it.w / 2, hd = it.d / 2, ins = Math.min(8, it.w / 4, it.d / 4);
-  const nx = Math.max(1, Math.ceil(it.w / 300)), ny = Math.max(1, Math.ceil(it.d / 300));
-  const pts = [];
-  for (let i = 0; i <= nx; i++) for (let j = 0; j <= ny; j++) {
-    if (i > 0 && i < nx && j > 0 && j < ny) continue; // só no contorno
-    pts.push([-hw + ins + ((it.w - 2 * ins) * i) / nx, -hd + ins + ((it.d - 2 * ins) * j) / ny]);
+// Desenho do piso externo (grama, concreto, cerâmico, deck, pedrisco, terra)
+function groundDetails(it) {
+  const w = it.w, d = it.d, hw = w / 2, hd = d / 2;
+  const tex = it.tex || 'grass';
+  let s = '';
+  const many = (base) => Math.max(base, Math.sqrt((w * d) / 260));
+  if (tex === 'tiles' || tex === 'concrete') {
+    const sp = tex === 'tiles' ? Math.max(60, many(30)) : Math.max(100, many(50));
+    for (let x = -hw + sp; x < hw - 1; x += sp) s += L(x, -hd, x, hd, tex === 'tiles' ? 'l faint' : 'l faint dash');
+    for (let y = -hd + sp; y < hd - 1; y += sp) s += L(-hw, y, hw, y, tex === 'tiles' ? 'l faint' : 'l faint dash');
+  } else if (tex === 'deck') {
+    const sp = Math.max(14, many(8));
+    for (let y = -hd + sp; y < hd - 1; y += sp) s += L(-hw, y, hw, y, 'l faint');
+  } else {
+    const sp = many(tex === 'grass' ? 24 : 18);
+    let k = 0;
+    for (let y = -hd + sp / 2; y < hd; y += sp) for (let x = -hw + sp / 2 + ((k++ % 2) * sp) / 2; x < hw; x += sp) {
+      if (tex === 'grass') s += P(`M${n(x - 3)},${n(y + 3)}L${n(x)},${n(y - 3)}L${n(x + 3)},${n(y + 3)}`, 'l faint');
+      else s += E(x, y, tex === 'soil' ? 1.4 : 2.4, tex === 'soil' ? 1.4 : 1.8, 'k faint');
+    }
   }
-  return pts;
+  return s;
+}
+
+// ---------- vista de frente (miniaturas do catálogo de muros, grades, pessoas, luz, pets) ----------
+const FRONT = new Set(['wallseg', 'fence', 'gate', 'person', 'indlight', 'pendant', 'bulb', 'socket', 'switch', 'cat', 'rabbit']);
+export function frontSVG(def, size = 56) {
+  const w = def.w, h = Math.max(1, def.h), d = def.d;
+  const sym = def.sym;
+  const side = sym === 'cat' || sym === 'rabbit';
+  const W = side ? d : w;
+  let body = '', H = h;
+  const Y = (y) => n(-y);
+  if (sym === 'wallseg') {
+    const h2 = def.h2 ?? h; H = Math.max(h, h2);
+    body = `<path class="b" d="M${n(-w / 2)},0L${n(w / 2)},0L${n(w / 2)},${Y(h2)}L${n(-w / 2)},${Y(h)}Z"/>`;
+  } else if (sym === 'fence') {
+    body = `<g class="bar">` + fenceBars(w, h, def.pattern).map(([a, b, c, e]) => `<line x1="${n(a)}" y1="${Y(b)}" x2="${n(c)}" y2="${Y(e)}"/>`).join('') + `</g>`;
+    body += `<path class="frame" d="M${n(-w / 2)},${Y(h - 2)}H${n(w / 2)}M${n(-w / 2)},${Y(6)}H${n(w / 2)}${fencePosts(w).map((x) => `M${n(x)},0V${Y(h)}`).join('')}"/>`;
+  } else if (sym === 'gate') {
+    const st = def.style || 'panel';
+    body = st === 'bars' ? '' : `<rect class="b" x="${n(-w / 2)}" y="${Y(h)}" width="${n(w)}" height="${n(h)}"/>`;
+    body += `<g class="bar">` + gateLines(w, h, st).map((v) => (st === 'panel' ? `<line x1="${n(-w / 2)}" y1="${Y(v)}" x2="${n(w / 2)}" y2="${Y(v)}"/>` : `<line x1="${n(v)}" y1="${Y(4)}" x2="${n(v)}" y2="${Y(h - 4)}"/>`)).join('') + `</g>`;
+    body += `<rect class="frame" x="${n(-w / 2)}" y="${Y(h)}" width="${n(w)}" height="${n(h)}" fill="none"/>`;
+  } else if (sym === 'person') {
+    const hr = h * 0.065, sw = w / 2;
+    body = `<ellipse class="skin" cx="0" cy="${Y(h - hr)}" rx="${n(hr * 0.85)}" ry="${n(hr)}"/>`;
+    body += `<path class="b" d="M${n(-sw)},${Y(h * 0.8)}Q0,${Y(h * 0.84)} ${n(sw)},${Y(h * 0.8)}L${n(sw * 0.75)},${Y(h * 0.5)}L${n(-sw * 0.75)},${Y(h * 0.5)}Z"/>`;
+    if (def.gender === 'f') body += `<path class="b" d="M${n(-sw * 0.75)},${Y(h * 0.5)}L${n(sw * 0.75)},${Y(h * 0.5)}L${n(sw * 0.95)},${Y(h * 0.3)}L${n(-sw * 0.95)},${Y(h * 0.3)}Z"/>`;
+    body += `<path class="pants" d="M${n(-sw * 0.7)},${Y(h * 0.5)}L${n(-sw * 0.08)},${Y(h * 0.5)}L${n(-sw * 0.12)},0L${n(-sw * 0.5)},0ZM${n(sw * 0.7)},${Y(h * 0.5)}L${n(sw * 0.08)},${Y(h * 0.5)}L${n(sw * 0.12)},0L${n(sw * 0.5)},0Z"/>`;
+  } else if (sym === 'indlight' || sym === 'pendant' || sym === 'bulb') {
+    const nb = sym === 'indlight' ? Math.max(1, Math.round(def.bulbs || 4)) : 1;
+    const r = sym === 'indlight' ? Math.min(w / nb / 2.6, 14) : w / 2;
+    H = h + 4;
+    if (sym === 'indlight') body += `<rect class="frame2" x="${n(-w / 2)}" y="${Y(h + 3)}" width="${n(w)}" height="3"/>`;
+    for (let i = 0; i < nb; i++) {
+      const x = -w / 2 + (w * (i + 0.5)) / nb;
+      body += `<line class="frame" x1="${n(x)}" y1="${Y(h)}" x2="${n(x)}" y2="${Y(r * 1.1)}"/>`;
+      body += sym === 'bulb' ? `<circle class="glow" cx="${n(x)}" cy="${Y(r)}" r="${n(r)}"/>` : `<path class="b" d="M${n(x - r)},${Y(r * 0.5)}Q${n(x)},${Y(r * 2)} ${n(x + r)},${Y(r * 0.5)}Z"/><circle class="glow" cx="${n(x)}" cy="${Y(r * 0.42)}" r="${n(r * 0.3)}"/>`;
+    }
+  } else if (sym === 'socket' || sym === 'switch') {
+    body = `<rect class="b" x="${n(-w / 2)}" y="${Y(h)}" width="${n(w)}" height="${n(h)}" rx="1"/>`;
+    if (sym === 'socket') body += `<circle class="frame" cx="0" cy="${Y(h / 2)}" r="${n(Math.min(w, h) * 0.3)}" fill="none"/><circle class="dot" cx="${n(-w * 0.1)}" cy="${Y(h / 2 + 0.6)}" r=".5"/><circle class="dot" cx="${n(w * 0.1)}" cy="${Y(h / 2 + 0.6)}" r=".5"/><circle class="dot" cx="0" cy="${Y(h / 2 - 1)}" r=".5"/>`;
+    else body += `<rect class="frame" x="${n(-w * 0.18)}" y="${Y(h * 0.68)}" width="${n(w * 0.36)}" height="${n(h * 0.36)}" fill="none"/>`;
+  } else if (sym === 'cat' || sym === 'rabbit') {
+    const L2 = d / 2, cat = sym === 'cat';
+    const hr = cat ? h * 0.24 : h * 0.26;
+    body = `<ellipse class="b" cx="${n(-L2 * 0.12)}" cy="${Y(h * 0.42)}" rx="${n(L2 * 0.62)}" ry="${n(h * 0.24)}"/>`;
+    body += `<circle class="b" cx="${n(L2 * 0.6)}" cy="${Y(h - hr * (cat ? 1.25 : 1.6))}" r="${n(hr)}"/>`;
+    if (cat) {
+      body += `<path class="b" d="M${n(L2 * 0.42)},${Y(h - hr * 0.6)}L${n(L2 * 0.5)},${Y(h)}L${n(L2 * 0.62)},${Y(h - hr * 0.4)}Z"/>`;
+      body += `<path class="tail" d="M${n(-L2 * 0.7)},${Y(h * 0.45)}Q${n(-L2 * 1.05)},${Y(h * 0.6)} ${n(-L2 * 0.9)},${Y(h * 0.95)}"/>`;
+      body += `<path class="frame" d="M${n(-L2 * 0.45)},${Y(h * 0.25)}V0M${n(L2 * 0.25)},${Y(h * 0.25)}V0"/>`;
+      if (def.coat === 'frajola') body += `<ellipse class="w" cx="${n(L2 * 0.45)}" cy="${Y(h * 0.35)}" rx="${n(L2 * 0.14)}" ry="${n(h * 0.12)}"/>`;
+    } else {
+      body += `<ellipse class="b" cx="${n(L2 * 0.42)}" cy="${Y(h * 0.95)}" rx="${n(L2 * 0.1)}" ry="${n(h * 0.3)}" transform="rotate(-25 ${n(L2 * 0.42)} ${Y(h * 0.95)})"/>`;
+      body += `<circle class="w" cx="${n(-L2 * 0.72)}" cy="${Y(h * 0.45)}" r="${n(h * 0.1)}"/>`;
+    }
+  }
+  const pad = Math.max(W, H) * 0.08 + 2;
+  const top = H + pad, vbW = W + pad * 2, vbH = H + pad * 2;
+  return `<svg class="prev front" viewBox="${n(-W / 2 - pad)} ${n(-top)} ${n(vbW)} ${n(vbH)}" width="${size}" height="${size}" style="--c:${def.color}">${body}</svg>`;
 }
 
 // Miniatura para o catálogo
 export function previewSVG(def, size = 56) {
-  const it = { w: def.w, d: def.d, h: def.h, steps: def.steps, sym: def.sym, shape: def.shape || 'rect' };
+  if (FRONT.has(def.sym)) return frontSVG(def, size);
+  const it = { ...def, shape: def.shape || 'rect' };
   const pad = Math.max(def.w, def.d) * 0.08 + 4;
   const vb = `${-def.w / 2 - pad} ${-def.d / 2 - pad} ${def.w + pad * 2} ${def.d + pad * 2}`;
   return `<svg class="prev" viewBox="${vb}" width="${size}" height="${size}" style="--c:${def.color}">${bodyShape(it)}${symbolDetails(it)}</svg>`;
@@ -186,4 +307,19 @@ export const SYM_CSS = `
 .k.col{fill:rgba(20,24,30,.7)}
 .rail{fill:none;stroke:rgba(20,24,30,.75);stroke-width:2.6;vector-effect:non-scaling-stroke;stroke-linecap:round}
 .leaf{fill:rgba(255,255,255,.22)}
+.hit0{fill:transparent;stroke:none}
+.w{fill:#f4f2ee;stroke:none}
+.skin{fill:#d9a98a;stroke:rgba(20,24,30,.3);stroke-width:1;vector-effect:non-scaling-stroke}
+.hair{fill:#3b2a20;stroke:none}
+.sand{fill:#e2d3a8;stroke:rgba(20,24,30,.2);stroke-width:1;vector-effect:non-scaling-stroke}
+.l.tail{stroke:var(--c);stroke-width:3.5;stroke-linecap:round;vector-effect:none}
+.k.stripe{stroke:rgba(20,24,30,.45);stroke-width:2;vector-effect:none}
+.k.faint{fill:rgba(20,24,30,.14);stroke:none}
+.prev.front .bar line,.prev.front .frame,.prev.front .tail{stroke:var(--c);fill:none;stroke-width:2.2;vector-effect:non-scaling-stroke;stroke-linecap:round}
+.prev.front .frame2{fill:var(--c)}
+.prev.front .tail{stroke-width:3.5}
+.prev.front .pants{fill:#36404e}
+.prev.front .glow{fill:#ffe9a0;stroke:rgba(20,24,30,.3);stroke-width:1;vector-effect:non-scaling-stroke}
+.prev.front .dot{fill:#333}
+.prev.front .gate .b{fill:var(--c)}
 `;

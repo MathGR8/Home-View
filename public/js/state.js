@@ -1,6 +1,6 @@
 // Modelo do projeto + estado da edição (seleção, desfazer/refazer).
 import { uid, normalizePoly, edgesOf, pointInPoly, itemCorners, itemBox, polysOverlap, clamp } from './geometry.js';
-import { ALL_DEFS, OPENING_TYPES } from './catalog.js';
+import { ALL_DEFS, OPENING_TYPES, NO_CLASH } from './catalog.js';
 import { STRUCT_KEYS } from './struct.js';
 
 export const DEFAULT_SETTINGS = {
@@ -42,8 +42,8 @@ export function lPts(x, y, w, h, cw, ch, corner = 'tr') {
   }
 }
 
-export function makeRoom({ name = 'Cômodo', points, height = 260, wallT = 15, floor = '#efe6d8' }) {
-  return { id: uid('r'), name, points: normalizePoly(points), height, wallT, floor, openings: [], locked: false };
+export function makeRoom({ name = 'Cômodo', points, height = 260, wallT = 15, floor = '#efe6d8', noWalls = false }) {
+  return { id: uid('r'), name, points: normalizePoly(points), height, wallT, floor, openings: [], locked: false, noWalls };
 }
 
 export function makeOpening(type, edgeLen, edge = 0) {
@@ -52,12 +52,18 @@ export function makeOpening(type, edgeLen, edge = 0) {
   return { id: uid('o'), type, edge, off: Math.max(0, (edgeLen - width) / 2), width, height: t.h, sill: t.sill, hinge: 'start', swing: 'in' };
 }
 
+// Corte de parede: um trecho (ou a parede inteira) sem parede; sill > 0 deixa uma mureta
+export function makeCut(edgeLen, edge, off, width, full = false) {
+  const w = Math.max(10, Math.min(width, edgeLen));
+  return { id: uid('o'), type: 'cut', edge, off: full ? 0 : clamp(off, 0, Math.max(0, edgeLen - w)), width: full ? edgeLen : w, height: 0, sill: 0, full };
+}
+
 export function makeItem(def, x, y) {
   return {
     id: uid('i'), name: def.n, sym: def.sym || 'generic', shape: def.shape || 'rect',
     w: def.w, d: def.d, h: def.h ?? 80, x, y, rot: 0, color: def.color || '#a7b1bd',
     layer: def.layer || 'normal', elev: def.elev || 0, status: 'tenho', price: 0, note: '', locked: false, z: 0, lvl: 0,
-    ...Object.fromEntries(STRUCT_KEYS.filter((k) => def[k] !== undefined).map((k) => [k, def[k]])),
+    ...Object.fromEntries(STRUCT_KEYS.filter((k) => def[k] !== undefined).map((k) => [k, Array.isArray(def[k]) ? [...def[k]] : def[k]])),
   };
 }
 
@@ -70,10 +76,15 @@ export function roomAt(p, x, y) {
 export function openingSeg(room, o) {
   const e = edgesOf(room.points)[o.edge];
   if (!e) return null;
-  const s = [e.a[0] + e.dir[0] * o.off, e.a[1] + e.dir[1] * o.off];
-  const t = [s[0] + e.dir[0] * o.width, s[1] + e.dir[1] * o.width];
+  // corte "parede inteira": acompanha o comprimento da parede
+  const off = o.full ? 0 : o.off, width = o.full ? e.len : o.width;
+  const s = [e.a[0] + e.dir[0] * off, e.a[1] + e.dir[1] * off];
+  const t = [s[0] + e.dir[0] * width, s[1] + e.dir[1] * width];
   return { e, s, t };
 }
+
+// Parede inteira removida?
+export const wallRemoved = (room, edge) => room.noWalls || room.openings.some((o) => o.full && o.edge === edge);
 
 // Cadeiras e banquetas podem ficar embaixo de mesas e escrivaninhas
 const SEATS = new Set(['chair', 'stool', 'officechair']);
@@ -84,7 +95,7 @@ const tucks = (a, b) => SEATS.has(a.sym) && TABLES.has(b.sym);
 export function analyze(p) {
   const bad = new Set();
   const pairs = [];
-  const solid = p.items.filter((i) => i.layer !== 'floor' && i.layer !== 'struct');
+  const solid = p.items.filter((i) => i.layer !== 'floor' && i.layer !== 'struct' && !NO_CLASH.has(i.sym));
   const polys = new Map(solid.map((i) => [i.id, itemCorners(i)]));
   const boxes = new Map(solid.map((i) => [i.id, itemBox(i)]));
   for (let a = 0; a < solid.length; a++) {
@@ -98,8 +109,9 @@ export function analyze(p) {
   }
   const crossing = [];
   for (const it of p.items) {
+    if (NO_CLASH.has(it.sym)) continue;
     const room = roomAt(p, it.x, it.y);
-    if (!room) continue;
+    if (!room || room.noWalls) continue;
     const c = itemCorners({ ...it, w: Math.max(1, it.w - 2), d: Math.max(1, it.d - 2) });
     if (c.some(([x, y]) => !pointInPoly(x, y, room.points))) { bad.add(it.id); crossing.push(it); }
   }

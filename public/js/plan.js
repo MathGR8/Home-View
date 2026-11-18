@@ -19,6 +19,10 @@ const PLAN_CSS = `
 .op.leaf{stroke-width:2}
 .op.arc{stroke-dasharray:3 3;stroke-width:1}
 .op.glass{stroke:var(--glass);stroke-width:1.5}
+.op.cutend{stroke:var(--ink3);stroke-dasharray:3 3}
+.lowwall{fill:var(--wall);fill-opacity:.38;stroke:none}
+.owall{fill:none;stroke:var(--ink3);stroke-width:1.2;stroke-dasharray:8 6;vector-effect:non-scaling-stroke}
+.room.sel .owall{stroke:var(--accent);stroke-width:2}
 .ophit{fill:transparent;stroke:none}
 .opening.sel .op{stroke:var(--accent)}
 .opening.sel .ophit{fill:var(--accent-soft)}
@@ -429,6 +433,7 @@ export class Plan {
 
   dragOpening(op, w) {
     const r = store.room(op.room), o = r.openings.find((x) => x.id === op.oid);
+    if (o.full) return;
     const E = edgesOf(r.points);
     let best = null;
     for (const e of E) {
@@ -517,6 +522,7 @@ export class Plan {
     const E = edgesOf(r.points);
     for (const o of r.openings) {
       const e = E[o.edge]; if (!e) continue;
+      if (o.full) { o.off = 0; o.width = Math.round(e.len * 10) / 10; continue; }
       o.width = Math.min(o.width, Math.max(20, Math.floor(e.len)));
       o.off = clamp(o.off, 0, Math.max(0, e.len - o.width));
     }
@@ -629,14 +635,18 @@ export class Plan {
     const S = p.settings, out = [];
     const sel = exporting ? null : store.sel;
     const ptsStr = (pts) => pts.map((q) => `${f1(q[0])},${f1(q[1])}`).join(' ');
+    const byZ = (a, b) => (a.z || 0) - (b.z || 0);
+    // pisos externos (grama, concreto…) ficam por baixo dos cômodos
+    for (const it of p.items.filter((i) => i.sym === 'ground').sort(byZ)) out.push(this.itemSVG(it, k, exporting));
     // pisos
     for (const rm of p.rooms) out.push(`<polygon class="floor" data-hit="room" data-id="${rm.id}" points="${ptsStr(rm.points)}" fill="${esc(rm.floor)}"/>`);
     // tapetes
-    for (const it of p.items.filter((i) => i.layer === 'floor')) out.push(this.itemSVG(it, k, exporting));
-    // paredes
+    for (const it of p.items.filter((i) => i.layer === 'floor' && i.sym !== 'ground')) out.push(this.itemSVG(it, k, exporting));
+    // paredes (área externa: só o contorno tracejado)
     for (const rm of p.rooms) {
-      const outer = offsetPoly(rm.points, rm.wallT);
       const isSel = sel?.kind === 'room' && sel.id === rm.id;
+      if (rm.noWalls) { out.push(`<g class="room${isSel ? ' sel' : ''}"><polygon class="owall" points="${ptsStr(rm.points)}"/></g>`); continue; }
+      const outer = offsetPoly(rm.points, rm.wallT);
       out.push(`<g class="room${isSel ? ' sel' : ''}"><path class="wall" data-hit="room" data-id="${rm.id}" d="M${ptsStr(outer)}Z M${ptsStr(rm.points)}Z"/></g>`);
     }
     // portas e janelas
@@ -644,7 +654,6 @@ export class Plan {
     // nomes e medidas dos cômodos
     for (const rm of p.rooms) out.push(this.roomLabels(rm, k, S, exporting));
     // móveis do térreo, depois mezanino e escadas, depois o que está em cima do mezanino
-    const byZ = (a, b) => (a.z || 0) - (b.z || 0);
     const lv = (l) => p.items.filter((i) => (i.lvl ? 1 : 0) === l);
     for (const l of [0, 1]) {
       if (l === 1) {
@@ -714,9 +723,17 @@ export class Plan {
     const gap = [add(s, e.nIn, 0.6), add(t, e.nIn, 0.6), add(add(t, no, T + 0.6), [0, 0], 0), add(s, no, T + 0.6)];
     const isSel = sel?.kind === 'opening' && sel.id === o.id;
     let g = `<g class="opening${isSel ? ' sel' : ''}" data-hit="open" data-room="${rm.id}" data-id="${o.id}">`;
+    if (rm.noWalls) return '';
     g += `<polygon class="gap" points="${gap.map(P).join(' ')}"/>`;
     const midIn = (q) => add(q, no, T / 2);
-    if (o.type === 'window') {
+    if (o.type === 'cut') {
+      if (o.sill > 0) g += `<polygon class="lowwall" points="${[s, t, add(t, no, T), add(s, no, T)].map(P).join(' ')}"/>`;
+      g += `<path class="op cutend" d="M${P(s)}L${P(add(s, no, T))}M${P(t)}L${P(add(t, no, T))}"/>`;
+    } else if (o.type === 'garage') {
+      g += `<path class="op leaf" d="M${P(midIn(s))}L${P(midIn(t))}"/>`;
+      g += `<path class="op" d="M${P(s)}L${P(add(s, no, T))}M${P(t)}L${P(add(t, no, T))}"/>`;
+      g += `<path class="op arc" d="M${P(s)}L${P(add(s, e.nIn, Math.min(80, o.height * 0.35)))}L${P(add(t, e.nIn, Math.min(80, o.height * 0.35)))}L${P(t)}"/>`;
+    } else if (o.type === 'window') {
       for (const f of [0.3, 0.7]) g += `<line class="op" x1="${f1(add(s, no, T * f)[0])}" y1="${f1(add(s, no, T * f)[1])}" x2="${f1(add(t, no, T * f)[0])}" y2="${f1(add(t, no, T * f)[1])}"/>`;
       g += `<line class="op glass" x1="${f1(midIn(s)[0])}" y1="${f1(midIn(s)[1])}" x2="${f1(midIn(t)[0])}" y2="${f1(midIn(t)[1])}"/>`;
       g += `<path class="op" d="M${P(s)}L${P(add(s, no, T))}M${P(t)}L${P(add(t, no, T))}"/>`;
@@ -760,7 +777,10 @@ export class Plan {
     if (!exporting && a.bad.has(it.id)) s += bodyShape(it, 'hatch');
     if (S.showLabels) {
       const name = it.name || '';
-      const second = isMezz(it) ? `piso a ${fmtLen(it.h, 'm')}` : it.sym === 'stair' ? `sobe ${fmtLen(it.h, 'm')} · ${stairInfo(it).n} degraus` : S.showItemDims ? `${Math.round(it.w)}×${Math.round(it.d)}` : '';
+      const second = isMezz(it) ? `piso a ${fmtLen(it.h, 'm')}` : it.sym === 'stair' ? `sobe ${fmtLen(it.h, 'm')} · ${stairInfo(it).n} degraus`
+        : it.sym === 'person' ? fmtLen(it.h, 'm')
+        : it.sym === 'wallseg' ? (it.h2 !== undefined && Math.abs(it.h2 - it.h) >= 1 ? `${fmtLen(it.h, 'm')} → ${fmtLen(it.h2, 'm')}` : `altura ${fmtLen(it.h, 'm')}`)
+        : S.showItemDims ? `${Math.round(it.w)}×${Math.round(it.d)}` : '';
       const along = it.d > it.w * 1.5 && it.w * k < 70;
       const len = along ? it.d : it.w, thick = along ? it.w : it.d;
       let fs = 11.5 / k;
