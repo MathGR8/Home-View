@@ -1,7 +1,7 @@
 // Modelo do projeto + estado da edição (seleção, desfazer/refazer).
-import { uid, normalizePoly, edgesOf, pointInPoly, itemCorners, itemBox, polysOverlap, clamp } from './geometry.js';
+import { uid, normalizePoly, edgesOf, pointInPoly, itemCorners, itemBox, polysOverlap, clamp, rotPt } from './geometry.js';
 import { ALL_DEFS, OPENING_TYPES, NO_CLASH } from './catalog.js';
-import { STRUCT_KEYS } from './struct.js';
+import { STRUCT_KEYS, isMezz } from './struct.js';
 
 export const DEFAULT_SETTINGS = {
   snap: true,        // ímã: encaixar em paredes, cantos e outros móveis
@@ -53,9 +53,10 @@ export function makeOpening(type, edgeLen, edge = 0) {
 }
 
 // Corte de parede: um trecho (ou a parede inteira) sem parede; sill > 0 deixa uma mureta
-export function makeCut(edgeLen, edge, off, width, full = false) {
-  const w = Math.max(10, Math.min(width, edgeLen));
-  return { id: uid('o'), type: 'cut', edge, off: full ? 0 : clamp(off, 0, Math.max(0, edgeLen - w)), width: full ? edgeLen : w, height: 0, sill: 0, full };
+// ext = quanto o corte pode passar do fim da parede (o canto, que tem a espessura da parede)
+export function makeCut(edgeLen, edge, off, width, full = false, ext = 0) {
+  const w = Math.max(4, Math.min(width, edgeLen + 2 * ext));
+  return { id: uid('o'), type: 'cut', edge, off: full ? 0 : clamp(off, -ext, Math.max(-ext, edgeLen + ext - w)), width: full ? edgeLen : w, height: 0, sill: 0, full };
 }
 
 export function makeItem(def, x, y) {
@@ -82,6 +83,29 @@ export function openingSeg(room, o) {
   const t = [s[0] + e.dir[0] * width, s[1] + e.dir[1] * width];
   return { e, s, t };
 }
+
+// ---------- luz presa no teto ----------
+// Altura do piso (do andar do item) até o teto: pé-direito do cômodo, ou embaixo do piso do mezanino
+export function ceilingAt(p, it) {
+  const room = roomAt(p, it.x, it.y);
+  const H = room ? room.height : 260;
+  let mz = null;
+  for (const m of p.items) {
+    if (!isMezz(m)) continue;
+    const [lx, ly] = rotPt(it.x - m.x, it.y - m.y, -(m.rot || 0));
+    if (Math.abs(lx) <= m.w / 2 + 1 && Math.abs(ly) <= m.d / 2 + 1 && (!mz || m.h > mz.h)) mz = m;
+  }
+  if (!mz) return H;
+  if (it.lvl) return Math.max(30, H - mz.h);
+  return Math.max(30, Math.min(H, mz.h - (mz.thick ?? 12)));
+}
+// Altura do chão até a base da luminária quando ela está presa no teto
+export function lampElev(p, it) {
+  const c = ceilingAt(p, it);
+  return Math.max(0, Math.round((c - Math.max(0, it.h) - (it.sym === 'indlight' ? 40 : 0)) * 10) / 10);
+}
+// Para o 3D e os painéis: elev efetiva (presa no teto ou a digitada)
+export const elevOf = (p, it) => (it.ceil && it.layer === 'wall' ? lampElev(p, it) : it.elev || 0);
 
 // Parede inteira removida?
 export const wallRemoved = (room, edge) => room.noWalls || room.openings.some((o) => o.full && o.edge === edge);

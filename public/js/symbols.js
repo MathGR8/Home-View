@@ -20,6 +20,8 @@ export function bodyShape(it, cls = 'b') {
   if (it.sym === 'cat') return P(EP(0, -it.d * 0.1, hw * 0.82, hd * 0.6) + EP(0, hd * 0.6, hw * 0.68, hw * 0.68) + `M${n(-hw * 0.62)},${n(hd * 0.52)}L${n(-hw * 0.5)},${n(hd * 0.98)}L${n(-hw * 0.12)},${n(hd * 0.7)}ZM${n(hw * 0.62)},${n(hd * 0.52)}L${n(hw * 0.5)},${n(hd * 0.98)}L${n(hw * 0.12)},${n(hd * 0.7)}Z`, cls);
   if (it.sym === 'rabbit') return P(EP(0, -it.d * 0.12, hw * 0.92, hd * 0.6) + EP(0, hd * 0.55, hw * 0.6, hw * 0.62), cls);
   if (it.sym === 'person') return P(EP(0, 0, hw, hd * 0.78) + EP(0, hd * 0.05, Math.min(hd * 0.82, hw * 0.42), Math.min(hd * 0.82, hw * 0.42)), cls);
+  if (it.sym === 'car') return R(-hw, -hd, it.w, it.d, cls, Math.min(it.w * 0.24, 45));
+  if (it.sym === 'moto') return P(EP(0, 0, hw * 0.55, hd), cls);
   if (it.shape === 'round') return E(0, 0, hw, hd, cls);
   if (it.sym === 'sofaL' || it.sym === 'deskL') {
     const a = lArm(it);
@@ -174,6 +176,14 @@ export function symbolDetails(it) {
       return s;
     }
     case 'ground': return groundDetails(it);
+    case 'car': return carTop(it);
+    case 'moto': return L(0, -hd + 6, 0, hd - 6, 'l thick') + R(-hw * 0.15, -hd + 2, hw * 0.3, d * 0.14, 'k', 3) + R(-hw * 0.15, hd - 2 - d * 0.14, hw * 0.3, d * 0.14, 'k', 3) + L(-hw + 4, -hd + d * 0.2, hw - 4, -hd + d * 0.2, 'l thick') + R(-hw * 0.4, -d * 0.05, hw * 0.8, d * 0.3, 'f', 6);
+    case 'monitor': return R(-hw, -hd, w, Math.max(2, d * 0.22), 'k', 1) + E(0, d * 0.12, w * 0.14, d * 0.3, 'l');
+    case 'pc': return R(-hw + 2, -hd + 2, w - 4, d - 4, 'l', 2) + L(-hw + 3, hd - 4, hw - 3, hd - 4) + E(0, hd - 8, 2, 2, 'k');
+    case 'laptop': return R(-hw, -hd, w, Math.max(2, d * 0.08), 'k', 1) + R(-hw + 3, -hd + d * 0.2, w - 6, d * 0.42, 'l', 1) + R(-w * 0.15, hd - d * 0.3, w * 0.3, d * 0.2, 'f', 1);
+    case 'keyboard': { const kw = w * 0.74; let s = R(-hw, -hd, kw, d, 'f', 2); for (let i = 1; i < 4; i++) s += L(-hw + 2, -hd + (d * i) / 4, -hw + kw - 2, -hd + (d * i) / 4, 'l faint'); return s + E(hw - w * 0.08, 0, w * 0.05, d * 0.32, 'k'); }
+    case 'printer': return R(-hw + 4, -hd, w - 8, d * 0.25, 'k', 2) + R(-hw * 0.6, hd - d * 0.3, w * 0.6, d * 0.26, 'f', 1);
+    case 'ceilinglamp': return E(0, 0, hw * 0.6, hd * 0.6, 'f') + E(0, 0, 14, 14, 'hit0');
     case 'bulb': return E(0, 0, hw * 0.75, hd * 0.75, 'f') + L(-hw * 0.6, -hd * 0.6, hw * 0.6, hd * 0.6) + L(hw * 0.6, -hd * 0.6, -hw * 0.6, hd * 0.6) + E(0, 0, 14, 14, 'hit0');
     case 'pendant': return E(0, 0, hw * 0.55, hd * 0.55, 'f') + E(0, 0, hw * 0.18, hd * 0.18, 'k');
     case 'indlight': {
@@ -201,18 +211,35 @@ export function symbolDetails(it) {
   }
 }
 
+// Carro visto de cima (frente em -y): para-brisa, teto, vidro de trás, rodas e retrovisores
+function carTop(it) {
+  const w = it.w, d = it.d, hw = w / 2, hd = d / 2, model = it.model || 'hatch';
+  const fr = { hatch: [0.26, 0.37, 0.8, 0.9], sedan: [0.27, 0.38, 0.68, 0.76], suv: [0.24, 0.33, 0.84, 0.92] }[model] || [0.26, 0.37, 0.8, 0.9];
+  const y = (f) => -hd + d * f, iw = hw * 0.8, tw = hw * 0.7;
+  let s = '';
+  // rodas
+  for (const sx of [-1, 1]) for (const fy of [0.17, 0.82]) s += R(sx * hw - (sx > 0 ? 7 : -1), y(fy) - d * 0.06, 6, d * 0.12, 'k col', 2);
+  s += P(`M${n(-iw)},${n(y(fr[0]))}L${n(iw)},${n(y(fr[0]))}L${n(tw)},${n(y(fr[1]))}L${n(-tw)},${n(y(fr[1]))}Z`, 'f');
+  s += R(-tw, y(fr[1]), tw * 2, d * (fr[2] - fr[1]), 'l', 6);
+  s += P(`M${n(-tw)},${n(y(fr[2]))}L${n(tw)},${n(y(fr[2]))}L${n(iw * 0.95)},${n(y(fr[3]))}L${n(-iw * 0.95)},${n(y(fr[3]))}Z`, 'f');
+  s += L(-hw + 8, y(0.12), hw - 8, y(0.12), 'l faint');
+  for (const sx of [-1, 1]) s += R(sx > 0 ? hw - 1 : -hw - 9, y(fr[0]) - 2, 10, 6, 'k', 2);
+  return s;
+}
+
 // Desenho do piso externo (grama, concreto, cerâmico, deck, pedrisco, terra)
 function groundDetails(it) {
   const w = it.w, d = it.d, hw = w / 2, hd = d / 2;
   const tex = it.tex || 'grass';
   let s = '';
   const many = (base) => Math.max(base, Math.sqrt((w * d) / 260));
-  if (tex === 'tiles' || tex === 'concrete') {
-    const sp = tex === 'tiles' ? Math.max(60, many(30)) : Math.max(100, many(50));
+  if (tex === 'cement') return s;
+  if (tex === 'tiles' || tex === 'concrete' || tex === 'porcelain') {
+    const sp = tex === 'tiles' ? Math.max(60, many(30)) : tex === 'porcelain' ? Math.max(90, many(45)) : Math.max(100, many(50));
     for (let x = -hw + sp; x < hw - 1; x += sp) s += L(x, -hd, x, hd, tex === 'tiles' ? 'l faint' : 'l faint dash');
     for (let y = -hd + sp; y < hd - 1; y += sp) s += L(-hw, y, hw, y, tex === 'tiles' ? 'l faint' : 'l faint dash');
-  } else if (tex === 'deck') {
-    const sp = Math.max(14, many(8));
+  } else if (tex === 'deck' || tex === 'wood') {
+    const sp = Math.max(tex === 'wood' ? 18 : 14, many(8));
     for (let y = -hd + sp; y < hd - 1; y += sp) s += L(-hw, y, hw, y, 'l faint');
   } else {
     const sp = many(tex === 'grass' ? 24 : 18);
@@ -226,11 +253,11 @@ function groundDetails(it) {
 }
 
 // ---------- vista de frente (miniaturas do catálogo de muros, grades, pessoas, luz, pets) ----------
-const FRONT = new Set(['wallseg', 'fence', 'gate', 'person', 'indlight', 'pendant', 'bulb', 'socket', 'switch', 'cat', 'rabbit']);
+const FRONT = new Set(['wallseg', 'fence', 'gate', 'person', 'indlight', 'pendant', 'bulb', 'socket', 'switch', 'cat', 'rabbit', 'car', 'moto', 'monitor', 'pc', 'laptop', 'printer', 'ceilinglamp']);
 export function frontSVG(def, size = 56) {
   const w = def.w, h = Math.max(1, def.h), d = def.d;
   const sym = def.sym;
-  const side = sym === 'cat' || sym === 'rabbit';
+  const side = sym === 'cat' || sym === 'rabbit' || sym === 'car' || sym === 'moto' || sym === 'pc' || sym === 'laptop';
   const W = side ? d : w;
   let body = '', H = h;
   const Y = (y) => n(-y);
@@ -265,6 +292,32 @@ export function frontSVG(def, size = 56) {
     body = `<rect class="b" x="${n(-w / 2)}" y="${Y(h)}" width="${n(w)}" height="${n(h)}" rx="1"/>`;
     if (sym === 'socket') body += `<circle class="frame" cx="0" cy="${Y(h / 2)}" r="${n(Math.min(w, h) * 0.3)}" fill="none"/><circle class="dot" cx="${n(-w * 0.1)}" cy="${Y(h / 2 + 0.6)}" r=".5"/><circle class="dot" cx="${n(w * 0.1)}" cy="${Y(h / 2 + 0.6)}" r=".5"/><circle class="dot" cx="0" cy="${Y(h / 2 - 1)}" r=".5"/>`;
     else body += `<rect class="frame" x="${n(-w * 0.18)}" y="${Y(h * 0.68)}" width="${n(w * 0.36)}" height="${n(h * 0.36)}" fill="none"/>`;
+  } else if (sym === 'car') {
+    const L2 = d / 2, m = def.model || 'hatch';
+    // perfil: frente à direita
+    const roof = { hatch: [-0.86, 0.2, 0.95], sedan: [-0.55, 0.15, 0.92], suv: [-0.9, 0.12, 0.98] }[m] || [-0.86, 0.2, 0.95];
+    const hb = h * 0.55, wr = Math.min(h * 0.22, d * 0.08);
+    body = `<path class="b" d="M${n(-L2)},${Y(wr * 0.6)}L${n(-L2)},${Y(hb)}L${n(L2 * roof[0])},${Y(hb)}L${n(L2 * (roof[0] + 0.12))},${Y(h * roof[2])}L${n(L2 * roof[1])},${Y(h * roof[2])}L${n(L2 * 0.5)},${Y(hb)}L${n(L2)},${Y(hb * 0.85)}L${n(L2)},${Y(wr * 0.6)}Z"/>`;
+    body += `<path class="glass" d="M${n(L2 * roof[0] + 8)},${Y(hb + 4)}L${n(L2 * (roof[0] + 0.12) + 4)},${Y(h * roof[2] - 6)}L${n(L2 * roof[1] - 4)},${Y(h * roof[2] - 6)}L${n(L2 * 0.5 - 10)},${Y(hb + 4)}Z"/>`;
+    for (const f of [-0.62, 0.62]) body += `<circle class="tyre" cx="${n(L2 * f)}" cy="${Y(wr)}" r="${n(wr)}"/><circle class="frame" cx="${n(L2 * f)}" cy="${Y(wr)}" r="${n(wr * 0.45)}" fill="none"/>`;
+  } else if (sym === 'moto') {
+    const L2 = d / 2, wr = h * 0.27;
+    for (const f of [-0.68, 0.68]) body += `<circle class="tyre" cx="${n(L2 * f)}" cy="${Y(wr)}" r="${n(wr)}"/>`;
+    body += `<path class="b" d="M${n(-L2 * 0.55)},${Y(h * 0.55)}L${n(L2 * 0.25)},${Y(h * 0.7)}L${n(L2 * 0.45)},${Y(h * 0.55)}L${n(L2 * 0.1)},${Y(h * 0.38)}L${n(-L2 * 0.4)},${Y(h * 0.4)}Z"/>`;
+    body += `<path class="frame" d="M${n(L2 * 0.68)},${Y(wr)}L${n(L2 * 0.45)},${Y(h)}M${n(-L2 * 0.68)},${Y(wr)}L${n(-L2 * 0.2)},${Y(h * 0.45)}"/>`;
+  } else if (sym === 'monitor') {
+    const sh = h * 0.72;
+    body = `<rect class="b" x="${n(-w / 2)}" y="${Y(h)}" width="${n(w)}" height="${n(sh)}" rx="1"/><rect class="glass" x="${n(-w / 2 + 2)}" y="${Y(h - 2)}" width="${n(w - 4)}" height="${n(sh - 4)}"/>`;
+    body += `<rect class="b" x="${n(-w * 0.04)}" y="${Y(h - sh)}" width="${n(w * 0.08)}" height="${n(h - sh)}"/><rect class="b" x="${n(-w * 0.18)}" y="${Y(1.5)}" width="${n(w * 0.36)}" height="1.5"/>`;
+  } else if (sym === 'pc') {
+    body = `<rect class="b" x="${n(-d / 2)}" y="${Y(h)}" width="${n(d)}" height="${n(h)}" rx="1.5"/><rect class="glass" x="${n(-d / 2 + 4)}" y="${Y(h - 4)}" width="${n(d * 0.55)}" height="${n(h - 8)}"/><circle class="dot" cx="${n(d * 0.32)}" cy="${Y(h - 5)}" r="1.4"/>`;
+  } else if (sym === 'laptop') {
+    body = `<path class="b" d="M${n(-d / 2)},${Y(1.5)}L${n(d / 2)},${Y(1.5)}L${n(d / 2)},0L${n(-d / 2)},0Z"/><path class="b" d="M${n(-d / 2 + 1)},${Y(1.5)}L${n(-d / 2 + 5)},${Y(h)}L${n(-d / 2 + 7)},${Y(h)}L${n(-d / 2 + 3)},${Y(1.5)}Z"/>`;
+  } else if (sym === 'printer') {
+    body = `<rect class="b" x="${n(-w / 2)}" y="${Y(h * 0.8)}" width="${n(w)}" height="${n(h * 0.8)}" rx="2"/><rect class="w" x="${n(-w * 0.3)}" y="${Y(h)}" width="${n(w * 0.6)}" height="${n(h * 0.25)}"/><rect class="frame" x="${n(-w * 0.35)}" y="${Y(h * 0.35)}" width="${n(w * 0.7)}" height="2" fill="none"/>`;
+  } else if (sym === 'ceilinglamp') {
+    H = Math.max(h, w * 0.3);
+    body = `<rect class="frame2" x="${n(-w * 0.6)}" y="${Y(H)}" width="${n(w * 1.2)}" height="${n(H * 0.12)}"/><path class="glow" d="M${n(-w / 2)},${Y(H * 0.88)}Q0,${Y(-H * 0.4)} ${n(w / 2)},${Y(H * 0.88)}Z"/>`;
   } else if (sym === 'cat' || sym === 'rabbit') {
     const L2 = d / 2, cat = sym === 'cat';
     const hr = cat ? h * 0.24 : h * 0.26;
@@ -321,5 +374,7 @@ export const SYM_CSS = `
 .prev.front .pants{fill:#36404e}
 .prev.front .glow{fill:#ffe9a0;stroke:rgba(20,24,30,.3);stroke-width:1;vector-effect:non-scaling-stroke}
 .prev.front .dot{fill:#333}
+.prev.front .glass{fill:#9fc0d8;stroke:rgba(20,24,30,.3);stroke-width:1;vector-effect:non-scaling-stroke}
+.prev.front .tyre{fill:#25282c}
 .prev.front .gate .b{fill:var(--c)}
 `;

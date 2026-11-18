@@ -22,7 +22,7 @@ $('#bUndo').innerHTML = icon('undo');
 $('#bRedo').innerHTML = icon('redo');
 $('#bMore').innerHTML = icon('more');
 $$('.sheet-x').forEach((b) => { b.innerHTML = icon('x'); });
-const toolIcons = { select: 'pointer', measure: 'ruler', multi: 'multi', snap: 'magnet', snapGrid: 'grid' };
+const toolIcons = { select: 'pointer', measure: 'ruler', multi: 'multi', snap: 'magnet', snapGrid: 'grid', lvl: 'front' };
 $$('#tools [data-tool], #tools [data-toggle]').forEach((b) => { b.innerHTML = icon(toolIcons[b.dataset.tool || b.dataset.toggle]); });
 $$('#zoomBox [data-zoom]').forEach((b) => { b.innerHTML = icon({ in: 'zoomIn', out: 'zoomOut', fit: 'fit' }[b.dataset.zoom]); });
 $$('#bottomNav [data-icon]').forEach((s) => { s.innerHTML = icon(s.dataset.icon, 22); });
@@ -75,6 +75,7 @@ const plan = new Plan($('#plan'), {
   onView: () => updateScale(),
   onOpenProps: () => app.openSheet('props'),
   onMulti: (on) => setMulti(on),
+  onStack: (ids, cur) => showStack(ids, cur),
   onEditDist: async (dir, gap) => {
     const v = await app.prompt('Distância', `Distância ${{ left: 'à esquerda', right: 'à direita', up: 'acima', down: 'abaixo' }[dir]} (até a parede ou o próximo móvel)`, String(Math.round(gap * 10) / 10).replace('.', ','));
     if (v !== null) A.setGap(dir, gap, parseFloat(String(v).replace(',', '.')));
@@ -93,6 +94,22 @@ const plan = new Plan($('#plan'), {
 app.plan = plan;
 A.setPlan(plan);
 applyTheme();
+
+// Itens empilhados no ponto tocado (ex.: móvel embaixo do mezanino): escolha qual selecionar
+let stackIds = [];
+function showStack(ids, cur) {
+  stackIds = ids || [];
+  const bar = $('#stackBar');
+  if (stackIds.length < 2) { bar.hidden = true; return; }
+  bar.innerHTML = `<div class="also">Aqui tem ${stackIds.length}:${stackIds.map((id) => { const it = store.item(id); return it ? `<button class="chip ${id === cur ? 'on' : ''}" data-id="${id}">${esc(it.name)}</button>` : ''; }).join('')}<button class="ib sm" data-x aria-label="Fechar">${icon('x', 14)}</button></div>`;
+  bar.hidden = false;
+}
+$('#stackBar').addEventListener('click', (e) => {
+  if (e.target.closest('[data-x]')) { showStack([]); return; }
+  const id = e.target.closest('[data-id]')?.dataset.id; if (!id) return;
+  store.select({ kind: 'items', ids: [id] });
+  showStack(stackIds, id);
+});
 
 function updateScale() {
   const k = plan.k;
@@ -125,7 +142,20 @@ function setMulti(on) {
   plan.multi = on;
   $('#tools [data-toggle="multi"]').classList.toggle('on', on);
 }
+// Andar na planta: tudo / só o térreo (mezanino transparente, o toque passa) / só o mezanino
+const LVL_NAMES = { all: 'Mostrando tudo', 0: 'Só o térreo: mezanino e escadas ficam transparentes — toque no que está embaixo', 1: 'Só o mezanino: o térreo fica transparente' };
+function setLvl(v) {
+  plan.lvlView = v;
+  const b = $('#tools [data-toggle="lvl"]');
+  b.classList.toggle('on', v !== 'all');
+  b.dataset.badge = v === 'all' ? '' : v === 0 ? 'T' : 'M';
+  b.title = v === 'all' ? 'Andar: mostrando tudo (toque para ver só o térreo)' : v === 0 ? 'Andar: só o térreo (toque para ver só o mezanino)' : 'Andar: só o mezanino (toque para ver tudo)';
+  plan.draw();
+}
 function syncToggles() {
+  const hasMezz = !!store.p?.items.some(isMezz);
+  $('#tools [data-toggle="lvl"]').hidden = !hasMezz;
+  if (!hasMezz && plan.lvlView !== 'all') setLvl('all');
   const S = store.p?.settings || {};
   $('#tools [data-toggle="snap"]').classList.toggle('on', !!S.snap);
   $('#tools [data-toggle="snapGrid"]').classList.toggle('on', !!S.snapGrid);
@@ -135,6 +165,7 @@ $('#tools').addEventListener('click', (e) => {
   if (b.dataset.tool) setTool(b.dataset.tool);
   const t = b.dataset.toggle;
   if (t === 'multi') { setMulti(!plan.multi); app.toast(plan.multi ? 'Seleção de vários ligada: toque nos itens ou arraste no vazio' : 'Seleção de vários desligada'); }
+  if (t === 'lvl') { const nx = { all: 0, 0: 1, 1: 'all' }[plan.lvlView]; setLvl(nx); app.toast(LVL_NAMES[nx]); }
   if (t === 'snap' || t === 'snapGrid') {
     store.change((p) => { p.settings[t] = !p.settings[t]; });
     const on = store.p.settings[t];
@@ -307,6 +338,7 @@ store.on((kind) => {
     if (app.view === '3d') rebuild3D(true);
   }
   if (kind === 'sel' || kind === 'change') update3DSel();
+  if (stackIds.length && (store.sel?.kind !== 'items' || store.sel.ids.length !== 1 || !stackIds.includes(store.sel.ids[0]))) showStack([]);
   if (kind === 'sel') {
     renderProps();
     if (app.tab !== 'catalog') renderLeft();
@@ -336,20 +368,37 @@ async function ensure3D() {
   };
   v3.onFly = (fly) => $$('#v3Move button').forEach((x) => x.classList.toggle('on', (x.dataset.m === 'fly') === fly));
   v3.onPick = onPick3D;
+  v3.onJoyCfg = (on) => $('#v3Joy button').classList.toggle('on', on);
   $('#v3Loading').hidden = true;
   return v3;
 }
 
 // ---------- selecionar e remover coisas no 3D ----------
 let pick3 = null; // última coisa tocada no 3D (com a peça: pilar, guarda-corpo, parede)
-function onPick3D(hit) {
+let pickList3 = []; // tudo o que estava embaixo do dedo (do mais perto ao mais longe)
+function onPick3D(hit, list = [], i = 0) {
   pick3 = hit;
+  pickList3 = list || [];
+  if (list?.length > 1 && i === 0 && !app._stackTip) { app._stackTip = 1; app.toast('Tem mais coisa atrás/embaixo: toque de novo no mesmo lugar ou escolha em “Também aqui”'); }
   if (!hit) { store.select(null); return; }
   if (hit.kind === 'item') store.select({ kind: 'items', ids: [hit.id] });
   else store.select({ kind: 'room', id: hit.kind === 'wall' ? hit.room : hit.id });
 }
 let selShownAt = 0;
 const sbtn = (act, label, cls = '') => `<button class="btn sm ${cls}" data-s="${act}">${label}</button>`;
+const hitName = (h) => {
+  if (h.kind === 'item') return store.item(h.id)?.name;
+  const r = store.room(h.kind === 'wall' ? h.room : h.id);
+  if (!r) return null;
+  return h.kind === 'wall' ? `Parede ${h.edge + 1} (${r.name})` : `Piso: ${r.name}`;
+};
+const sameHit = (a, b) => a && b && a.kind === b.kind && (a.kind === 'item' ? a.id === b.id : a.kind === 'wall' ? a.room === b.room && a.edge === b.edge && a.a === b.a : a.id === b.id);
+// "Também aqui": os outros objetos que estavam embaixo do toque
+function alsoHTML() {
+  const others = pickList3.map((h, i) => [h, i]).filter(([h]) => !sameHit(h, pick3) && hitName(h)).slice(0, 8);
+  if (!others.length) return '';
+  return `<div class="also">Também aqui:${others.map(([h, i]) => `<button class="chip" data-s="also" data-i="${i}">${esc(hitName(h))}</button>`).join('')}</div>`;
+}
 function update3DSel() {
   const box = $('#v3Sel');
   if (!v3) return;
@@ -375,6 +424,7 @@ function update3DSel() {
       const gone = r.openings.some((o) => o.full && o.edge === pick3.edge);
       h += `<b>Parede ${pick3.edge + 1} · ${esc(r.name)}</b>`;
       if (!gone) h += sbtn('cut', 'Cortar 1 m aqui', 'pri') + sbtn('cutHalf', 'Meia-parede aqui');
+      if (!gone && pick3.b > pick3.a) h += sbtn('piece', pick3.b - pick3.a < 60 ? `Tirar este pilar (${Math.round(pick3.b - pick3.a)} cm)` : `Tirar este pedaço (${fmtLen(pick3.b - pick3.a, 'm')})`);
       h += sbtn('wall', gone ? 'Devolver a parede' : 'Tirar a parede inteira', gone ? '' : 'dng');
     } else if (r) h += `<b>${esc(r.name)}</b>`;
     if (r) h += sbtn('props', 'Ajustes');
@@ -383,7 +433,7 @@ function update3DSel() {
     if (o) h += `<b>${esc(o.full ? 'Parede removida' : OPENING_TYPES[o.type]?.n || '')} · ${esc(r.name)}</b>` + sbtn('props', 'Ajustes') + sbtn('del', o.type === 'cut' ? 'Desfazer corte' : 'Apagar', 'dng');
   }
   if (!h || app.view !== '3d') { box.hidden = true; box.innerHTML = ''; return; }
-  const html = h + `<button class="ib sm" data-s="close" aria-label="Fechar">${icon('x', 16)}</button>`;
+  const html = h + `<button class="ib sm" data-s="close" aria-label="Fechar">${icon('x', 16)}</button>` + alsoHTML();
   // toque que selecionou não pode "clicar" no botão que aparece embaixo do dedo
   if (box.hidden || box.innerHTML !== html) selShownAt = performance.now();
   box.innerHTML = html;
@@ -397,7 +447,14 @@ $('#v3Sel').addEventListener('click', (e) => {
   const id = s?.kind === 'items' ? s.ids[0] : null;
   const part = pick3?.part;
   switch (a) {
-    case 'close': pick3 = null; store.select(null); break;
+    case 'close': pick3 = null; pickList3 = []; store.select(null); break;
+    case 'also': { const hit = pickList3[+b.dataset.i]; if (hit) { pick3 = hit; if (hit.kind === 'item') store.select({ kind: 'items', ids: [hit.id] }); else store.select({ kind: 'room', id: hit.kind === 'wall' ? hit.room : hit.id }); update3DSel(); } return; }
+    case 'piece': {
+      const n = A.cutPiece(pick3.room, pick3.edge, pick3.a, pick3.b);
+      pick3 = null;
+      app.toast(n ? 'Pedaço de parede tirado — Desfazer (↶) coloca de volta' : 'Não deu para tirar esse pedaço');
+      break;
+    }
     case 'del': pick3 = null; A.deleteSelection(); break;
     case 'props':
       if (app.isMobile()) app.openSheet('props');
@@ -453,7 +510,8 @@ async function setView(view) {
       $('#v3Loading').textContent = 'Não foi possível abrir o 3D neste aparelho.';
       console.error(e);
     }
-  } else if (v3) { v3.stop(); $('#v3Sel').hidden = true; }
+  } else if (v3) { v3.stop(); $('#v3Sel').hidden = true; if (!v3.ui.cfg.hidden) { v3.toggleJoyCfg(false); $('#v3Joy button').classList.remove('on'); } }
+  $('#stackBar').hidden = true;
 }
 $('#viewSeg').addEventListener('click', (e) => { const v = e.target.closest('button')?.dataset.view; if (v) setView(v); });
 $('#v3View').addEventListener('click', (e) => {
@@ -471,6 +529,17 @@ $('#v3Light').addEventListener('click', (e) => {
   const night = b.dataset.l === 'night';
   v3.setNight(night);
   if (night) app.toast(store.p.items.some((i) => LIGHT_SYMS.has(i.sym)) ? 'Noite: as lâmpadas estão acesas' : 'Noite: adicione lâmpadas em Móveis → Elétrica e luz');
+});
+$('#v3Xray').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b || !v3) return;
+  const on = !b.classList.contains('on');
+  b.classList.toggle('on', on);
+  v3.setXray(on);
+  app.toast(on ? 'Raio-X: mezanino, escadas e o que está em cima ficam transparentes — toque no que está embaixo' : 'Raio-X desligado');
+});
+$('#v3Joy').addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b || !v3) return;
+  b.classList.toggle('on', v3.toggleJoyCfg());
 });
 $('#v3Walls').addEventListener('click', (e) => {
   const b = e.target.closest('button'); if (!b || !v3) return;

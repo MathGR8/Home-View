@@ -84,17 +84,42 @@ button { cursor: pointer; }
 .v3-hint { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); max-width: min(560px, calc(100% - 32px)); padding: 8px 14px; border-radius: 10px; background: rgba(20, 24, 30, .72); color: #fff; font-size: 12.5px; line-height: 1.35; text-align: center; z-index: 3; pointer-events: none; transition: opacity .6s; }
 .v3-hint.fade { opacity: 0; }
 .v3-hint[hidden], .joy[hidden], .vbtns[hidden], .seg[hidden] { display: none; }
-.joy { position: absolute; bottom: calc(18px + var(--safe-b)); width: 124px; height: 124px; border-radius: 50%; background: rgba(20, 24, 30, .22); border: 2px solid rgba(255, 255, 255, .55); z-index: 3; touch-action: none; user-select: none; -webkit-user-select: none; display: grid; place-items: center; cursor: grab; }
+.joy { position: absolute; bottom: calc(18px + var(--safe-b)); width: calc(124px * var(--js, 1)); height: calc(124px * var(--js, 1)); border-radius: 50%; background: rgba(20, 24, 30, .22); border: 2px solid rgba(255, 255, 255, .55); z-index: 3; touch-action: none; user-select: none; -webkit-user-select: none; display: grid; place-items: center; cursor: grab; }
 .joy.l { left: 18px; }
 .joy.r { right: 18px; }
 .joy.on { background: rgba(37, 99, 235, .28); border-color: rgba(255, 255, 255, .8); }
-.joy i { grid-area: 1 / 1; width: 52px; height: 52px; border-radius: 50%; background: rgba(255, 255, 255, .92); box-shadow: 0 2px 8px rgba(0, 0, 0, .25); pointer-events: none; }
+.joy i { grid-area: 1 / 1; width: calc(52px * var(--js, 1)); height: calc(52px * var(--js, 1)); border-radius: 50%; background: rgba(255, 255, 255, .92); box-shadow: 0 2px 8px rgba(0, 0, 0, .25); pointer-events: none; }
 .joy span { grid-area: 1 / 1; align-self: end; margin-bottom: -22px; font: 700 10.5px system-ui, sans-serif; letter-spacing: .06em; text-transform: uppercase; color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, .7); pointer-events: none; }
 .vbtns { position: absolute; right: 30px; bottom: calc(168px + var(--safe-b)); display: flex; flex-direction: column; gap: 10px; z-index: 3; }
 .vbtns button { width: 54px; height: 54px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, .6); background: rgba(20, 24, 30, .4); color: #fff; font-size: 20px; touch-action: none; }
 .vbtns button:active { background: rgba(37, 99, 235, .7); }
 .v3-sel { position: absolute; top: 56px; left: 10px; z-index: 4; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; max-width: calc(100% - 20px); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
 .v3-sel b { font-size: 13px; margin-right: 4px; }
+.v3-sel .also, .stack-bar .also { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; font-size: 12px; color: var(--text2); }
+.v3-sel .also .chip, .stack-bar .chip { height: 28px; font-size: 12px; }
+.tb[hidden] { display: none; }
+.joy.drag { background: rgba(234, 88, 12, .35); border-style: dashed; cursor: move; }
+.v3.joy-edit .joy { outline: 2px dashed rgba(234, 88, 12, .9); outline-offset: 4px; opacity: 1 !important; }
+.v3.joy-edit .joy i { opacity: .5; }
+.joy-cfg { position: absolute; top: 56px; right: 10px; z-index: 5; width: min(440px, calc(100% - 20px)); max-height: calc(100% - 80px); overflow: auto; padding: 10px 12px 12px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); font-size: 13px; }
+.joy-cfg[hidden] { display: none; }
+.joy-cfg .jc-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.joy-cfg .jc-x { border: 0; background: transparent; color: var(--text2); font-size: 16px; width: 30px; height: 30px; border-radius: 8px; }
+.joy-cfg .jc-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.joy-cfg fieldset { border: 1px solid var(--line); border-radius: 10px; margin: 0; padding: 4px 10px 8px; min-width: 0; }
+.joy-cfg legend { font-weight: 600; font-size: 12px; color: var(--text2); padding: 0 4px; }
+.joy-cfg .jc-r { display: grid; gap: 2px; margin-top: 6px; }
+.joy-cfg .jc-r span { display: flex; justify-content: space-between; font-size: 12px; color: var(--text2); }
+.joy-cfg .jc-r output { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
+.joy-cfg input[type=range] { width: 100%; accent-color: var(--accent); }
+.joy-cfg .jc-ck { display: flex; gap: 8px; align-items: center; margin: 10px 0 4px; }
+.joy-cfg .jc-b { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.joy-cfg .jc-t { margin: 8px 0 0; font-size: 11.5px; color: var(--text2); }
+@media (max-width: 420px) { .joy-cfg .jc-cols { grid-template-columns: 1fr; } }
+.stack-bar { position: absolute; left: 50%; bottom: 52px; transform: translateX(-50%); z-index: 6; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; max-width: calc(100% - 24px); padding: 6px 8px 6px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); font-size: 12px; }
+.stack-bar[hidden] { display: none; }
+.stack-bar .chip.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.stack-bar .ib { width: 28px; height: 28px; }
 .v3-sel .btn.sm { height: 32px; }
 .v3-loading { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text2); }
 
@@ -297,7 +322,9 @@ dialog::backdrop { background: rgba(10, 12, 16, .45); }
   .v3-bar { top: 8px; }
   .pmin, .phead { display: none; }
   .v3-hint { top: auto; bottom: calc(160px + var(--safe-b)); }
-  .joy { width: 116px; height: 116px; bottom: calc(26px + var(--safe-b)); }
+  .joy { width: calc(116px * var(--js, 1)); height: calc(116px * var(--js, 1)); bottom: calc(26px + var(--safe-b)); }
+  .joy-cfg { top: 50px; left: 8px; right: 8px; width: auto; max-height: calc(100% - 210px); }
+  .stack-bar { bottom: calc(10px + var(--safe-b)); }
   .v3-bar { left: 8px; right: 8px; gap: 6px; }
   .v3-sel { top: auto; bottom: calc(156px + var(--safe-b)); left: 8px; right: 8px; max-width: none; padding: 6px 4px 6px 10px; gap: 5px; }
   .v3-sel b { flex: 1 1 100%; }
@@ -310,3 +337,5 @@ dialog::backdrop { background: rgba(10, 12, 16, .45); }
 @media print {
   body { overflow: visible; }
 }
+.tb[data-badge]:not([data-badge=""]) { position: relative; }
+.tb[data-badge]:not([data-badge=""])::after { content: attr(data-badge); position: absolute; right: 2px; bottom: 2px; min-width: 13px; height: 13px; border-radius: 7px; background: var(--accent); color: #fff; font: 700 9px/13px system-ui, sans-serif; text-align: center; }
